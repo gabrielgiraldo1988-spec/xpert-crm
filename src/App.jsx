@@ -359,12 +359,16 @@ export default function App() {
 function CRMApp({ session }) {
   const [leads, setLeads] = useState([]);
   const [activities, setActivities] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("dashboard");
   const [search, setSearch] = useState("");
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [showNewLead, setShowNewLead] = useState(false);
   const [toast, setToast] = useState(null);
+  const [leadFilters, setLeadFilters] = useState({ rep: "All", stage: "All", source: "All", priority: "All" });
+  const [activityRep, setActivityRep] = useState("All");
+  const [calendarRep, setCalendarRep] = useState("All");
   const [theme, setTheme] = useState(() => {
     const saved = typeof window !== "undefined" ? window.localStorage.getItem("xpert-crm-theme") : null;
     return saved === "dark" || saved === "light" ? saved : "light";
@@ -388,6 +392,7 @@ function CRMApp({ session }) {
           const parsed = JSON.parse(data.value);
           setLeads(parsed.leads || []);
           setActivities(parsed.activities || []);
+          setTasks(parsed.tasks || []);
           setLoading(false);
           return;
         }
@@ -396,58 +401,76 @@ function CRMApp({ session }) {
       const seedActivities = genActivities(seedLeads);
       setLeads(seedLeads);
       setActivities(seedActivities);
+      setTasks([]);
       setLoading(false);
       try {
-        await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities }) });
+        await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities, tasks: [] }) });
       } catch (e) { /* storage best-effort */ }
     })();
   }, []);
 
-  const persist = useCallback(async (nextLeads, nextActivities) => {
+  const persist = useCallback(async (nextLeads, nextActivities, nextTasks) => {
     try {
-      await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: nextLeads, activities: nextActivities }) });
+      await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: nextLeads, activities: nextActivities, tasks: nextTasks }) });
     } catch (e) { /* best-effort */ }
   }, []);
 
   const updateLead = useCallback((id, patch) => {
     setLeads((prev) => {
       const next = prev.map((l) => (l.id === id ? { ...l, ...patch } : l));
-      persist(next, activities);
+      persist(next, activities, tasks);
       return next;
     });
-  }, [activities, persist]);
+  }, [activities, tasks, persist]);
 
   const deleteLead = useCallback((id) => {
     setLeads((prev) => {
       const next = prev.filter((l) => l.id !== id);
-      persist(next, activities);
+      persist(next, activities, tasks);
       return next;
     });
     setSelectedLeadId(null);
-  }, [activities, persist]);
+  }, [activities, tasks, persist]);
 
   const addLead = useCallback((lead) => {
     setLeads((prev) => {
       const next = [lead, ...prev];
-      persist(next, activities);
+      persist(next, activities, tasks);
       return next;
     });
-  }, [activities, persist]);
+  }, [activities, tasks, persist]);
 
-  const logActivity = useCallback((leadId, act, nextFollowupDate) => {
-    setActivities((prevA) => {
-      const nextA = [{ id: "A" + Date.now(), leadId, date: fmt(TODAY), ...act }, ...prevA];
-      setLeads((prevL) => {
-        const nextL = prevL.map((l) => l.id === leadId ? {
-          ...l, lastActivityDate: fmt(TODAY),
-          nextFollowupDate: nextFollowupDate || l.nextFollowupDate,
-        } : l);
-        persist(nextL, nextA);
-        return nextL;
+  const logActivity = useCallback((leadId, act, dueDate) => {
+    setLeads((prevL) => {
+      const lead = prevL.find((l) => l.id === leadId);
+      const nextL = prevL.map((l) => l.id === leadId ? {
+        ...l, lastActivityDate: fmt(TODAY),
+        nextFollowupDate: dueDate || l.nextFollowupDate,
+      } : l);
+      setActivities((prevA) => {
+        const nextA = [{ id: "A" + Date.now(), leadId, date: fmt(TODAY), ...act }, ...prevA];
+        setTasks((prevT) => {
+          const nextT = dueDate ? [{
+            id: "T" + Date.now(), leadId, companyName: lead ? lead.companyName : "",
+            assignedTo: lead ? lead.assignedTo : "", type: act.type, notes: act.notes,
+            dueDate, done: false, createdDate: fmt(TODAY),
+          }, ...prevT] : prevT;
+          persist(nextL, nextA, nextT);
+          return nextT;
+        });
+        return nextA;
       });
-      return nextA;
+      return nextL;
     });
   }, [persist]);
+
+  const toggleTaskDone = useCallback((taskId) => {
+    setTasks((prev) => {
+      const next = prev.map((t) => t.id === taskId ? { ...t, done: !t.done } : t);
+      persist(leads, activities, next);
+      return next;
+    });
+  }, [leads, activities, persist]);
 
   const selectedLead = useMemo(() => leads.find((l) => l.id === selectedLeadId) || null, [leads, selectedLeadId]);
 
@@ -460,6 +483,7 @@ function CRMApp({ session }) {
     { key: "leads", label: "Leads", icon: Users },
     { key: "pipeline", label: "Pipeline", icon: KanbanSquare },
     { key: "activities", label: "Activities", icon: Phone },
+    { key: "calendar", label: "Calendar", icon: Calendar },
     { key: "customers", label: "Customers", icon: UserCheck },
     { key: "reports", label: "Reports", icon: BarChart3 },
     { key: "team", label: "Sales Team", icon: UsersRound },
@@ -531,9 +555,10 @@ function CRMApp({ session }) {
 
         <div className="flex-1 overflow-y-auto p-6">
           {view === "dashboard" && <Dashboard leads={leads} activities={activities} setView={setView} setSelectedLeadId={setSelectedLeadId} />}
-          {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} />}
           {view === "pipeline" && <PipelineView leads={leads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} />}
-          {view === "activities" && <ActivitiesView leads={leads} activities={activities} logActivity={logActivity} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "activities" && <ActivitiesView leads={leads} activities={activities} logActivity={logActivity} setSelectedLeadId={setSelectedLeadId} repFilter={activityRep} setRepFilter={setActivityRep} />}
+          {view === "calendar" && <CalendarView tasks={tasks} toggleTaskDone={toggleTaskDone} setSelectedLeadId={setSelectedLeadId} repFilter={calendarRep} setRepFilter={setCalendarRep} />}
           {view === "customers" && <CustomersView leads={leads} setSelectedLeadId={setSelectedLeadId} />}
           {view === "reports" && <ReportsView leads={leads} />}
           {view === "team" && <TeamView leads={leads} activities={activities} setSelectedLeadId={setSelectedLeadId} />}
@@ -542,6 +567,7 @@ function CRMApp({ session }) {
 
       {selectedLead && (
         <LeadDetail key={selectedLead.id} lead={selectedLead} activities={activities.filter(a => a.leadId === selectedLead.id)}
+          tasks={tasks.filter(t => t.leadId === selectedLead.id)} toggleTaskDone={toggleTaskDone}
           onClose={() => setSelectedLeadId(null)} updateLead={updateLead} deleteLead={deleteLead} logActivity={logActivity} />
       )}
       {showNewLead && <NewLeadModal onClose={() => setShowNewLead(false)} onCreate={(l) => { addLead(l); setShowNewLead(false); }} />}
@@ -649,12 +675,19 @@ function Dashboard({ leads, activities, setView, setSelectedLeadId }) {
   );
 }
 
+function FilterSelect({ value, onChange, options, label }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="text-sm border rounded-lg px-2.5 py-1.5" style={{ borderColor: C.line }}>
+      <option value="All">{label}: All</option>
+      {options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
 /* ============================== LEADS ============================== */
-function LeadsView({ leads, search, setSearch, setSelectedLeadId }) {
-  const [rep, setRep] = useState("All");
-  const [stage, setStage] = useState("All");
-  const [source, setSource] = useState("All");
-  const [priority, setPriority] = useState("All");
+function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFilters }) {
+  const { rep, stage, source, priority } = filters;
+  const setField = (key) => (val) => setFilters((prev) => ({ ...prev, [key]: val }));
 
   const filtered = leads.filter(l => {
     const q = search.trim().toLowerCase();
@@ -663,22 +696,15 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId }) {
       (source === "All" || l.source === source) && (priority === "All" || l.priority === priority);
   });
 
-  const Select = ({ value, onChange, options, label }) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className="text-sm border rounded-lg px-2.5 py-1.5" style={{ borderColor: C.line }}>
-      <option value="All">{label}: All</option>
-      {options.map(o => <option key={o} value={o}>{o}</option>)}
-    </select>
-  );
-
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold" style={{ color: C.ink }}>Leads <span style={{ color: C.slate, fontWeight: 500 }}>({filtered.length})</span></h1>
         <div className="flex gap-2 flex-wrap">
-          <Select value={rep} onChange={setRep} options={REPS} label="Rep" />
-          <Select value={stage} onChange={setStage} options={STAGES} label="Stage" />
-          <Select value={source} onChange={setSource} options={SOURCES} label="Source" />
-          <Select value={priority} onChange={setPriority} options={PRIORITIES} label="Priority" />
+          <FilterSelect value={rep} onChange={setField("rep")} options={REPS} label="Rep" />
+          <FilterSelect value={stage} onChange={setField("stage")} options={STAGES} label="Stage" />
+          <FilterSelect value={source} onChange={setField("source")} options={SOURCES} label="Source" />
+          <FilterSelect value={priority} onChange={setField("priority")} options={PRIORITIES} label="Priority" />
         </div>
       </div>
 
@@ -765,15 +791,8 @@ function PipelineView({ leads, updateLead, setSelectedLeadId }) {
 }
 
 /* ============================== ACTIVITIES ============================== */
-function ActivitiesView({ leads, activities, logActivity, setSelectedLeadId }) {
-  const todayStr = fmt(TODAY);
-  const open = leads.filter(l => l.stage !== "Won – Active Customer" && l.stage !== "Lost");
-  const today = open.filter(l => l.nextFollowupDate === todayStr);
-  const overdue = open.filter(l => l.nextFollowupDate && dateOnly(l.nextFollowupDate) < dateOnly(TODAY));
-  const upcoming = open.filter(l => l.nextFollowupDate && dateOnly(l.nextFollowupDate) > dateOnly(TODAY)).sort((a, b) => new Date(a.nextFollowupDate) - new Date(b.nextFollowupDate));
-  const [logging, setLogging] = useState(null);
-
-  const Section = ({ title, items, tone }) => (
+function ActivitySection({ title, items, tone, setSelectedLeadId, logging, setLogging, logActivity }) {
+  return (
     <div className="bg-white rounded-xl border p-4 flex-1 min-w-[280px]" style={{ borderColor: C.line }}>
       <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: tone }}>
         {title} <span className="text-xs font-normal" style={{ color: C.slate }}>({items.length})</span>
@@ -800,19 +819,33 @@ function ActivitiesView({ leads, activities, logActivity, setSelectedLeadId }) {
       </div>
     </div>
   );
+}
+
+function ActivitiesView({ leads, activities, logActivity, setSelectedLeadId, repFilter, setRepFilter }) {
+  const todayStr = fmt(TODAY);
+  const byRep = repFilter === "All" ? leads : leads.filter(l => l.assignedTo === repFilter);
+  const open = byRep.filter(l => l.stage !== "Won – Active Customer" && l.stage !== "Lost");
+  const today = open.filter(l => l.nextFollowupDate === todayStr);
+  const overdue = open.filter(l => l.nextFollowupDate && dateOnly(l.nextFollowupDate) < dateOnly(TODAY));
+  const upcoming = open.filter(l => l.nextFollowupDate && dateOnly(l.nextFollowupDate) > dateOnly(TODAY)).sort((a, b) => new Date(a.nextFollowupDate) - new Date(b.nextFollowupDate));
+  const [logging, setLogging] = useState(null);
+  const filteredActivities = repFilter === "All" ? activities : activities.filter(a => a.salesperson === repFilter);
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-bold" style={{ color: C.ink }}>Activities & Follow-ups</h1>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h1 className="text-xl font-bold" style={{ color: C.ink }}>Activities & Follow-ups</h1>
+        <FilterSelect value={repFilter} onChange={setRepFilter} options={REPS} label="Rep" />
+      </div>
       <div className="flex gap-4 flex-wrap">
-        <Section title="Overdue" items={overdue} tone={C.danger} />
-        <Section title="Today" items={today} tone={C.greenDark} />
-        <Section title="Upcoming" items={upcoming.slice(0, 20)} tone={C.slate} />
+        <ActivitySection title="Overdue" items={overdue} tone={C.danger} setSelectedLeadId={setSelectedLeadId} logging={logging} setLogging={setLogging} logActivity={logActivity} />
+        <ActivitySection title="Today" items={today} tone={C.greenDark} setSelectedLeadId={setSelectedLeadId} logging={logging} setLogging={setLogging} logActivity={logActivity} />
+        <ActivitySection title="Upcoming" items={upcoming.slice(0, 20)} tone={C.slate} setSelectedLeadId={setSelectedLeadId} logging={logging} setLogging={setLogging} logActivity={logActivity} />
       </div>
       <div className="bg-white rounded-xl border p-4" style={{ borderColor: C.line }}>
         <h3 className="text-sm font-semibold mb-3" style={{ color: C.ink }}>Recent Activity Log</h3>
         <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
-          {activities.slice(0, 25).map(a => {
+          {filteredActivities.slice(0, 25).map(a => {
             const lead = leads.find(l => l.id === a.leadId);
             return (
               <div key={a.id} className="flex items-center justify-between text-sm border-b pb-1.5" style={{ borderColor: C.line }}>
@@ -826,6 +859,7 @@ function ActivitiesView({ leads, activities, logActivity, setSelectedLeadId }) {
     </div>
   );
 }
+
 function QuickLog({ lead, onDone, onCancel }) {
   const [type, setType] = useState("Phone Call");
   const [notes, setNotes] = useState("");
@@ -847,6 +881,104 @@ function QuickLog({ lead, onDone, onCancel }) {
 }
 
 /* ============================== CUSTOMERS ============================== */
+/* ============================== CALENDAR ============================== */
+function CalendarView({ tasks, toggleTaskDone, setSelectedLeadId, repFilter, setRepFilter }) {
+  const [monthOffset, setMonthOffset] = useState(0);
+  const base = new Date(TODAY.getFullYear(), TODAY.getMonth() + monthOffset, 1);
+  const year = base.getFullYear(), month = base.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthLabel = base.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const openTasks = tasks.filter(t => !t.done && (repFilter === "All" || t.assignedTo === repFilter));
+  const tasksByDay = {};
+  openTasks.forEach(t => {
+    tasksByDay[t.dueDate] = tasksByDay[t.dueDate] || [];
+    tasksByDay[t.dueDate].push(t);
+  });
+
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const dateKey = (d) => `${year}-${pad(month + 1)}-${pad(d)}`;
+  const todayKey = fmt(TODAY);
+
+  const upcomingSorted = [...openTasks].sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h1 className="text-xl font-bold" style={{ color: C.ink }}>Calendar</h1>
+        <FilterSelect value={repFilter} onChange={setRepFilter} options={REPS} label="Rep" />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="xl:col-span-2 bg-white rounded-xl border p-4" style={{ borderColor: C.line }}>
+          <div className="flex items-center justify-between mb-3">
+            <button onClick={() => setMonthOffset(m => m - 1)} className="px-2 py-1 rounded-md text-sm font-semibold" style={{ background: C.bg, color: C.ink }}>‹</button>
+            <span className="text-sm font-bold capitalize" style={{ color: C.ink }}>{monthLabel}</span>
+            <button onClick={() => setMonthOffset(m => m + 1)} className="px-2 py-1 rounded-md text-sm font-semibold" style={{ background: C.bg, color: C.ink }}>›</button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold mb-1" style={{ color: C.slate }}>
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => <div key={d}>{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((d, i) => {
+              if (d === null) return <div key={i} />;
+              const key = dateKey(d);
+              const dayTasks = tasksByDay[key] || [];
+              const isToday = key === todayKey;
+              const isPast = key < todayKey;
+              return (
+                <div key={i} className="rounded-lg p-1.5 min-h-[74px] text-left"
+                  style={{ background: isToday ? C.greenTint : C.bg, border: isToday ? `1.5px solid ${C.green}` : `1px solid ${C.line}` }}>
+                  <div className="text-[11px] font-semibold mb-1" style={{ color: isPast && dayTasks.length ? C.danger : C.slate }}>{d}</div>
+                  <div className="flex flex-col gap-0.5">
+                    {dayTasks.slice(0, 3).map(t => (
+                      <div key={t.id} onClick={() => setSelectedLeadId(t.leadId)}
+                        className="text-[10px] rounded px-1 py-0.5 truncate cursor-pointer"
+                        style={{ background: isPast ? C.danger + "22" : C.greenTint, color: isPast ? C.danger : C.greenDark }}
+                        title={`${t.companyName}: ${t.notes}`}>
+                        {t.companyName}
+                      </div>
+                    ))}
+                    {dayTasks.length > 3 && <div className="text-[10px]" style={{ color: C.slate }}>+{dayTasks.length - 3} more</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border p-4" style={{ borderColor: C.line }}>
+          <h3 className="text-sm font-semibold mb-3" style={{ color: C.ink }}>Pending Tasks ({openTasks.length})</h3>
+          <div className="flex flex-col gap-2 max-h-[520px] overflow-y-auto">
+            {upcomingSorted.map(t => {
+              const isPast = t.dueDate < todayKey;
+              return (
+                <div key={t.id} className="border rounded-lg p-2.5" style={{ borderColor: C.line }}>
+                  <div className="flex items-start gap-2">
+                    <input type="checkbox" checked={false} onChange={() => toggleTaskDone(t.id)} className="mt-0.5" />
+                    <div className="flex-1 cursor-pointer" onClick={() => setSelectedLeadId(t.leadId)}>
+                      <div className="text-sm font-semibold" style={{ color: C.ink }}>{t.companyName}</div>
+                      <div className="text-xs" style={{ color: C.slate }}>{t.type} · {t.assignedTo.split(" ")[0]}</div>
+                      <div className="text-xs mt-1" style={{ color: C.ink }}>{t.notes}</div>
+                      <div className="text-[11px] font-semibold mt-1" style={{ color: isPast ? C.danger : C.greenDark }}>{t.dueDate}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {openTasks.length === 0 && <div className="text-xs" style={{ color: C.slate }}>No pending tasks.</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CustomersView({ leads, setSelectedLeadId }) {
   const customers = leads.filter(l => l.stage === "Won – Active Customer");
   const healthColor = { Active: C.green, Growing: "#3b82f6", "At Risk": C.warm, Inactive: C.slate, "Lost Customer": C.danger };
@@ -1047,11 +1179,12 @@ function Row({ label, value }) {
 }
 
 /* ============================== LEAD DETAIL DRAWER ============================== */
-function LeadDetail({ lead, activities, onClose, updateLead, deleteLead, logActivity }) {
+function LeadDetail({ lead, activities, tasks, toggleTaskDone, onClose, updateLead, deleteLead, logActivity }) {
   const [type, setType] = useState("Phone Call");
   const [notes, setNotes] = useState("");
   const [next, setNext] = useState(lead.nextFollowupDate || fmt(addDays(TODAY, 3)));
   const [saved, setSaved] = useState(false);
+  const leadTasks = tasks.filter(t => !t.done).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     contactFirst: lead.contactFirst, contactLast: lead.contactLast, jobTitle: lead.jobTitle,
@@ -1183,14 +1316,24 @@ function LeadDetail({ lead, activities, onClose, updateLead, deleteLead, logActi
         )}
 
         <Section title="Tasks & Follow-up">
-          <div className="rounded-lg px-3 py-2 mb-2 text-sm" style={{ background: C.greenTint, color: C.greenDark }}>
-            Scheduled follow-up: <strong>{lead.nextFollowupDate || "None set"}</strong>
-          </div>
+          {leadTasks.length > 0 && (
+            <div className="flex flex-col gap-1.5 mb-3">
+              {leadTasks.map(t => (
+                <div key={t.id} className="flex items-start gap-2 rounded-lg px-3 py-2 text-sm" style={{ background: C.greenTint }}>
+                  <input type="checkbox" checked={false} onChange={() => toggleTaskDone(t.id)} className="mt-0.5" />
+                  <div>
+                    <div style={{ color: C.greenDark, fontWeight: 700 }}>{t.dueDate} · {t.type}</div>
+                    <div style={{ color: C.ink }}>{t.notes}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             <select value={type} onChange={e => setType(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>
               {ACTIVITY_TYPES.map(t => <option key={t}>{t}</option>)}
             </select>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What happened? (comment for this task)" rows={2}
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What needs to be done? (task comment)" rows={2}
               className="border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} />
             <div className="flex items-center gap-2">
               <FieldLabel>Task Due Date</FieldLabel>
@@ -1204,7 +1347,8 @@ function LeadDetail({ lead, activities, onClose, updateLead, deleteLead, logActi
               {saved && <span className="text-xs font-semibold flex items-center gap-1" style={{ color: C.greenDark }}><CheckCircle2 size={14} />Saved</span>}
             </div>
           </div>
-          <div className="mt-3 flex flex-col gap-2 max-h-52 overflow-y-auto">
+          <div className="mt-3 text-[11px] font-bold uppercase tracking-wide" style={{ color: C.slate }}>Activity History</div>
+          <div className="mt-1 flex flex-col gap-2 max-h-52 overflow-y-auto">
             {activities.map(a => (
               <div key={a.id} className="text-xs border-t pt-2" style={{ borderColor: C.line }}>
                 <div className="flex justify-between"><span className="font-semibold" style={{ color: C.ink }}>{a.type}</span><span style={{ color: C.slate }}>{a.date}</span></div>
