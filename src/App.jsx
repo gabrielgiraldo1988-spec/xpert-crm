@@ -10,6 +10,7 @@ import {
   Cell, CartesianGrid, Legend
 } from "recharts";
 import { supabase } from "./supabase";
+
 /* ============================== BRAND TOKENS ============================== */
 const C = {
   green: "#39d639",
@@ -284,8 +285,73 @@ function Modal({ onClose, children, width = 640 }) {
 }
 function FieldLabel({ children }) { return <div className="text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: C.slate }}>{children}</div>; }
 
-/* ============================== APP ============================== */
+/* ============================== LOGIN ============================== */
+function LoginScreen({ onLoggedIn }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (error) {
+      setError("Correo o contraseña incorrectos.");
+    } else {
+      onLoggedIn();
+    }
+  };
+
+  return (
+    <div className="h-screen w-full flex items-center justify-center" style={{ background: C.charcoal }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
+      <form onSubmit={submit} className="bg-white rounded-xl p-8 w-full max-w-sm flex flex-col gap-4" style={{ fontFamily: "'Inter', sans-serif" }}>
+        <div className="flex items-center gap-2 mb-2">
+          <div style={{ width: 10, height: 22, background: C.green, borderRadius: 3 }} />
+          <div className="font-extrabold text-[15px] leading-tight" style={{ color: C.charcoal }}>XPERT<br /><span style={{ color: C.greenDark }}>FREIGHT</span></div>
+        </div>
+        <div>
+          <FieldLabel>Correo</FieldLabel>
+          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm" style={{ borderColor: C.line }} placeholder="tu@lgiinc.com" />
+        </div>
+        <div>
+          <FieldLabel>Contraseña</FieldLabel>
+          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm" style={{ borderColor: C.line }} placeholder="••••••••" />
+        </div>
+        {error && <div className="text-xs font-medium" style={{ color: C.danger }}>{error}</div>}
+        <button type="submit" disabled={busy}
+          className="px-4 py-2.5 rounded-lg font-semibold text-sm" style={{ background: C.green, color: C.charcoal, opacity: busy ? 0.6 : 1 }}>
+          {busy ? "Entrando…" : "Entrar"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export default function App() {
+  const [session, setSession] = useState(undefined); // undefined = checking, null = logged out, object = logged in
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  if (session === undefined) {
+    return <div className="h-screen w-full flex items-center justify-center" style={{ background: C.bg, color: C.slate }}>Cargando…</div>;
+  }
+  if (!session) {
+    return <LoginScreen onLoggedIn={() => {}} />;
+  }
+  return <CRMApp session={session} />;
+}
+
+function CRMApp({ session }) {
   const [leads, setLeads] = useState([]);
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -298,35 +364,35 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-  const { data, error } = await supabase
-    .from("crm_storage")
-    .select("value")
-    .eq("key", "xpert-crm-data")
-    .maybeSingle();
-  if (data && data.value) {
-    const parsed = JSON.parse(data.value);
-    setLeads(parsed.leads || []);
-    setActivities(parsed.activities || []);
-    setLoading(false);
-    return;
-  }
-} catch (e) { /* no stored data yet */ }
+        const { data, error } = await supabase
+          .from("crm_storage")
+          .select("value")
+          .eq("key", "xpert-crm-data")
+          .maybeSingle();
+        if (data && data.value) {
+          const parsed = JSON.parse(data.value);
+          setLeads(parsed.leads || []);
+          setActivities(parsed.activities || []);
+          setLoading(false);
+          return;
+        }
+      } catch (e) { /* no stored data yet */ }
       const seedLeads = genLeads();
       const seedActivities = genActivities(seedLeads);
       setLeads(seedLeads);
       setActivities(seedActivities);
       setLoading(false);
       try {
-  await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities }) });
-} catch (e) { /* storage best-effort */ }
+        await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities }) });
+      } catch (e) { /* storage best-effort */ }
     })();
   }, []);
 
   const persist = useCallback(async (nextLeads, nextActivities) => {
-  try {
-    await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: nextLeads, activities: nextActivities }) });
-  } catch (e) { /* best-effort */ }
-}, []);
+    try {
+      await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: nextLeads, activities: nextActivities }) });
+    } catch (e) { /* best-effort */ }
+  }, []);
 
   const updateLead = useCallback((id, patch) => {
     setLeads((prev) => {
@@ -406,8 +472,12 @@ export default function App() {
             );
           })}
         </div>
-        <div className="px-4 py-4 text-[11px] border-t" style={{ borderColor: "#333", color: "#8b8d94" }}>
-          Freight Brokerage under LGI<br />Medellín · USA/NA market
+        <div className="px-4 py-4 text-[11px] border-t flex flex-col gap-2" style={{ borderColor: "#333", color: "#8b8d94" }}>
+          <div>Freight Brokerage under LGI<br />Medellín · USA/NA market</div>
+          <div className="pt-2 border-t flex items-center justify-between" style={{ borderColor: "#333" }}>
+            <span className="truncate" style={{ maxWidth: 130 }}>{session?.user?.email}</span>
+            <button onClick={() => supabase.auth.signOut()} className="font-semibold shrink-0" style={{ color: C.green }}>Salir</button>
+          </div>
         </div>
       </div>
 
