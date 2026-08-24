@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, Phone, UserCheck,
   BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun,
   Mail, MapPin, Building2, TrendingUp, TrendingDown, Clock, CheckCircle2,
-  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2
+  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie,
@@ -12,21 +12,26 @@ import {
 import { supabase } from "./supabase";
 
 /* ============================== BRAND TOKENS ============================== */
-const C = {
-  green: "#39d639",
-  greenDark: "#22a022",
-  greenTint: "#eafbea",
-  charcoal: "#1c1c1c",
-  charcoal2: "#272727",
-  ink: "#0f172a",
-  slate: "#64748b",
-  line: "#e6e8eb",
-  bg: "#f6f7f5",
-  hot: "#ef4444",
-  warm: "#f59e0b",
-  cold: "#3b82f6",
-  danger: "#ef4444",
+const THEMES = {
+  light: {
+    green: "#39d639", greenDark: "#22a022", greenTint: "#eafbea",
+    charcoal: "#1c1c1c", charcoal2: "#272727",
+    ink: "#0f172a", slate: "#64748b", line: "#e6e8eb", bg: "#f6f7f5",
+    card: "#ffffff", cardHover: "#f9fafb",
+    hot: "#ef4444", warm: "#f59e0b", cold: "#3b82f6", danger: "#ef4444",
+  },
+  dark: {
+    green: "#39d639", greenDark: "#4ee84e", greenTint: "#16321a",
+    charcoal: "#0e0f0e", charcoal2: "#1a1b1a",
+    ink: "#e9edf1", slate: "#94a3b8", line: "#2b2f33", bg: "#121314",
+    card: "#1c1e1f", cardHover: "#232527",
+    hot: "#f87171", warm: "#fbbf24", cold: "#60a5fa", danger: "#f87171",
+  },
 };
+const C = { ...THEMES.light };
+function applyTheme(name) {
+  Object.assign(C, THEMES[name] || THEMES.light);
+}
 
 const STAGES = [
   "New Lead", "Attempting Contact", "Contacted", "Discovery / Qualification",
@@ -360,6 +365,16 @@ function CRMApp({ session }) {
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [showNewLead, setShowNewLead] = useState(false);
   const [toast, setToast] = useState(null);
+  const [theme, setTheme] = useState(() => {
+    const saved = typeof window !== "undefined" ? window.localStorage.getItem("xpert-crm-theme") : null;
+    return saved === "dark" || saved === "light" ? saved : "light";
+  });
+  applyTheme(theme);
+  const toggleTheme = () => {
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    try { window.localStorage.setItem("xpert-crm-theme", next); } catch (e) { /* best-effort */ }
+  };
 
   useEffect(() => {
     (async () => {
@@ -451,14 +466,29 @@ function CRMApp({ session }) {
   ];
 
   return (
-    <div className="flex h-screen w-full overflow-hidden" style={{ background: C.bg, fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');`}</style>
+    <div data-theme={theme} className="flex h-screen w-full overflow-hidden" style={{ background: C.bg, fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+        [data-theme="dark"] .bg-white { background-color: ${THEMES.dark.card} !important; }
+        [data-theme="dark"] .hover\\:bg-gray-50:hover { background-color: ${THEMES.dark.cardHover} !important; }
+        [data-theme="dark"] .hover\\:bg-gray-100:hover { background-color: ${THEMES.dark.cardHover} !important; }
+        [data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea {
+          background-color: ${THEMES.dark.card}; color: ${THEMES.dark.ink};
+        }
+        [data-theme="dark"] ::placeholder { color: ${THEMES.dark.slate}; }
+      `}</style>
 
       {/* SIDEBAR */}
       <div className="flex flex-col shrink-0" style={{ width: 220, background: C.charcoal }}>
-        <div className="px-5 py-5 flex items-center gap-2 border-b" style={{ borderColor: "#333" }}>
-          <div style={{ width: 10, height: 22, background: C.green, borderRadius: 3 }} />
-          <div className="text-white font-extrabold text-[15px] leading-tight">XPERT<br /><span style={{ color: C.green }}>FREIGHT</span></div>
+        <div className="px-5 py-5 flex items-center justify-between gap-2 border-b" style={{ borderColor: "#333" }}>
+          <div className="flex items-center gap-2">
+            <div style={{ width: 10, height: 22, background: C.green, borderRadius: 3 }} />
+            <div className="text-white font-extrabold text-[15px] leading-tight">XPERT<br /><span style={{ color: C.green }}>FREIGHT</span></div>
+          </div>
+          <button onClick={toggleTheme} title={theme === "light" ? "Modo oscuro" : "Modo claro"}
+            className="p-1.5 rounded-lg shrink-0" style={{ background: "#2a2b2a", color: C.green }}>
+            {theme === "light" ? <Moon size={14} /> : <Sun size={14} />}
+          </button>
         </div>
         <div className="flex-1 py-3 px-2 flex flex-col gap-1">
           {NAV.map((n) => {
@@ -511,7 +541,7 @@ function CRMApp({ session }) {
       </div>
 
       {selectedLead && (
-        <LeadDetail lead={selectedLead} activities={activities.filter(a => a.leadId === selectedLead.id)}
+        <LeadDetail key={selectedLead.id} lead={selectedLead} activities={activities.filter(a => a.leadId === selectedLead.id)}
           onClose={() => setSelectedLeadId(null)} updateLead={updateLead} deleteLead={deleteLead} logActivity={logActivity} />
       )}
       {showNewLead && <NewLeadModal onClose={() => setShowNewLead(false)} onCreate={(l) => { addLead(l); setShowNewLead(false); }} />}
@@ -1021,6 +1051,25 @@ function LeadDetail({ lead, activities, onClose, updateLead, deleteLead, logActi
   const [type, setType] = useState("Phone Call");
   const [notes, setNotes] = useState("");
   const [next, setNext] = useState(lead.nextFollowupDate || fmt(addDays(TODAY, 3)));
+  const [saved, setSaved] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    contactFirst: lead.contactFirst, contactLast: lead.contactLast, jobTitle: lead.jobTitle,
+    email: lead.email, phone: lead.phone, mobile: lead.mobile,
+    city: lead.city, state: lead.state,
+    legalName: lead.legalName, industry: lead.industry, companySize: lead.companySize,
+    trucks: lead.trucks, website: lead.website,
+    mainLanes: lead.mainLanes, equipmentType: lead.equipmentType,
+    avgWeeklyLoads: lead.avgWeeklyLoads, commodity: lead.commodity, currentProvider: lead.currentProvider,
+  });
+  const setF = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
+
+  const saveEdits = () => {
+    updateLead(lead.id, { ...form, trucks: Number(form.trucks) || 0, avgWeeklyLoads: Number(form.avgWeeklyLoads) || 0 });
+    setEditing(false);
+  };
+
+  const inputStyle = "w-full border rounded-lg px-2 py-1 text-sm";
 
   return (
     <Modal onClose={onClose} width={560}>
@@ -1060,51 +1109,100 @@ function LeadDetail({ lead, activities, onClose, updateLead, deleteLead, logActi
           )}
         </div>
 
-        <Section title="Contact">
-          <InfoRow icon={UserCheck} text={`${lead.contactFirst} ${lead.contactLast} — ${lead.jobTitle}`} />
-          <InfoRow icon={Mail} text={lead.email} />
-          <InfoRow icon={Phone} text={`${lead.phone} (office) · ${lead.mobile} (mobile)`} />
-          <InfoRow icon={MapPin} text={`${lead.city}, ${lead.state} · ${lead.timeZone}`} />
-        </Section>
+        <div className="flex items-center justify-between -mb-2">
+          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: C.slate }}>Lead Profile</span>
+          {!editing ? (
+            <button onClick={() => setEditing(true)} className="text-xs font-semibold" style={{ color: C.greenDark }}>Edit Profile</button>
+          ) : (
+            <div className="flex gap-2">
+              <button onClick={saveEdits} className="text-xs font-semibold px-2 py-1 rounded-md" style={{ background: C.green, color: C.charcoal }}>Save Changes</button>
+              <button onClick={() => setEditing(false)} className="text-xs font-semibold" style={{ color: C.slate }}>Cancel</button>
+            </div>
+          )}
+        </div>
 
-        <Section title="Company">
-          <InfoRow icon={Building2} text={`${lead.legalName} · ${lead.industry} · ${lead.companySize} employees`} />
-          <InfoRow icon={Truck} text={`${lead.trucks} trucks · ${lead.website}`} />
-        </Section>
+        {!editing ? (
+          <>
+            <Section title="Contact">
+              <InfoRow icon={UserCheck} text={`${lead.contactFirst} ${lead.contactLast} — ${lead.jobTitle}`} />
+              <InfoRow icon={Mail} text={lead.email} />
+              <InfoRow icon={Phone} text={`${lead.phone} (office) · ${lead.mobile} (mobile)`} />
+              <InfoRow icon={MapPin} text={`${lead.city}, ${lead.state} · ${lead.timeZone}`} />
+            </Section>
 
-        <Section title="Freight Profile">
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <Kv k="Lanes" v={lead.mainLanes} /><Kv k="Equipment" v={lead.equipmentType} />
-            <Kv k="Avg Weekly Loads" v={lead.avgWeeklyLoads} /><Kv k="Avg Weight" v={lead.avgWeight} />
-            <Kv k="Commodity" v={lead.commodity} /><Kv k="Current Provider" v={lead.currentProvider} />
-            <Kv k="Hazmat" v={lead.hazmat ? "Yes" : "No"} /><Kv k="Temp Controlled" v={lead.tempControlled ? "Yes" : "No"} />
+            <Section title="Company">
+              <InfoRow icon={Building2} text={`${lead.legalName} · ${lead.industry} · ${lead.companySize} employees`} />
+              <InfoRow icon={Truck} text={`${lead.trucks} trucks · ${lead.website}`} />
+            </Section>
+
+            <Section title="Freight Profile">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <Kv k="Lanes" v={lead.mainLanes} /><Kv k="Equipment" v={lead.equipmentType} />
+                <Kv k="Avg Weekly Loads" v={lead.avgWeeklyLoads} /><Kv k="Avg Weight" v={lead.avgWeight} />
+                <Kv k="Commodity" v={lead.commodity} /><Kv k="Current Provider" v={lead.currentProvider} />
+                <Kv k="Hazmat" v={lead.hazmat ? "Yes" : "No"} /><Kv k="Temp Controlled" v={lead.tempControlled ? "Yes" : "No"} />
+              </div>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {lead.servicesInterest.map(s => <span key={s} className="text-[10px] rounded-full px-2 py-0.5" style={{ background: C.greenTint, color: C.greenDark }}>{s}</span>)}
+              </div>
+            </Section>
+          </>
+        ) : (
+          <>
+            <Section title="Contact">
+              <div className="grid grid-cols-2 gap-2">
+                <div><FieldLabel>First Name</FieldLabel><input value={form.contactFirst} onChange={setF("contactFirst")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Last Name</FieldLabel><input value={form.contactLast} onChange={setF("contactLast")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Job Title</FieldLabel><input value={form.jobTitle} onChange={setF("jobTitle")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Email</FieldLabel><input value={form.email} onChange={setF("email")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Phone</FieldLabel><input value={form.phone} onChange={setF("phone")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Mobile</FieldLabel><input value={form.mobile} onChange={setF("mobile")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>City</FieldLabel><input value={form.city} onChange={setF("city")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>State</FieldLabel><input value={form.state} onChange={setF("state")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+              </div>
+            </Section>
+            <Section title="Company">
+              <div className="grid grid-cols-2 gap-2">
+                <div><FieldLabel>Legal Name</FieldLabel><input value={form.legalName} onChange={setF("legalName")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Industry</FieldLabel><input value={form.industry} onChange={setF("industry")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Company Size</FieldLabel><input value={form.companySize} onChange={setF("companySize")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Trucks</FieldLabel><input type="number" value={form.trucks} onChange={setF("trucks")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div className="col-span-2"><FieldLabel>Website</FieldLabel><input value={form.website} onChange={setF("website")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+              </div>
+            </Section>
+            <Section title="Freight Profile">
+              <div className="grid grid-cols-2 gap-2">
+                <div><FieldLabel>Lanes</FieldLabel><input value={form.mainLanes} onChange={setF("mainLanes")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Equipment</FieldLabel><input value={form.equipmentType} onChange={setF("equipmentType")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Avg Weekly Loads</FieldLabel><input type="number" value={form.avgWeeklyLoads} onChange={setF("avgWeeklyLoads")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Commodity</FieldLabel><input value={form.commodity} onChange={setF("commodity")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div className="col-span-2"><FieldLabel>Current Provider</FieldLabel><input value={form.currentProvider} onChange={setF("currentProvider")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+              </div>
+            </Section>
+          </>
+        )}
+
+        <Section title="Tasks & Follow-up">
+          <div className="rounded-lg px-3 py-2 mb-2 text-sm" style={{ background: C.greenTint, color: C.greenDark }}>
+            Scheduled follow-up: <strong>{lead.nextFollowupDate || "None set"}</strong>
           </div>
-          <div className="flex flex-wrap gap-1 mt-2">
-            {lead.servicesInterest.map(s => <span key={s} className="text-[10px] rounded-full px-2 py-0.5" style={{ background: C.greenTint, color: C.greenDark }}>{s}</span>)}
-          </div>
-        </Section>
-
-        <Section title="Commercial">
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <Kv k="Est. Monthly Rev." v={money(lead.estMonthlyRevenue)} /><Kv k="Est. Annual Rev." v={money(lead.estAnnualRevenue)} />
-            <Kv k="Avg Rev / Load" v={money(lead.avgRevPerLoad)} /><Kv k="Probability" v={lead.probability + "%"} />
-            <Kv k="Expected Close" v={lead.expectedCloseDate || "—"} /><Kv k="Created" v={lead.createdDate} />
-          </div>
-        </Section>
-
-        <Section title="Log Activity">
           <div className="flex flex-col gap-2">
             <select value={type} onChange={e => setType(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>
               {ACTIVITY_TYPES.map(t => <option key={t}>{t}</option>)}
             </select>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What happened?" rows={2}
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What happened? (comment for this task)" rows={2}
               className="border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} />
             <div className="flex items-center gap-2">
-              <FieldLabel>Next Follow-up</FieldLabel>
+              <FieldLabel>Task Due Date</FieldLabel>
               <input type="date" value={next} onChange={e => setNext(e.target.value)} className="border rounded-lg px-2 py-1 text-sm" style={{ borderColor: C.line }} />
             </div>
-            <button onClick={() => { logActivity(lead.id, { type, notes: notes || "Logged activity.", salesperson: lead.assignedTo, outcome: "Connected", nextStep: "Follow up" }, next); setNotes(""); }}
-              className="self-start px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>Log Activity</button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => {
+                logActivity(lead.id, { type, notes: notes || "Logged activity.", salesperson: lead.assignedTo, outcome: "Connected", nextStep: "Follow up" }, next);
+                setNotes(""); setSaved(true); setTimeout(() => setSaved(false), 2500);
+              }} className="self-start px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>Save Task</button>
+              {saved && <span className="text-xs font-semibold flex items-center gap-1" style={{ color: C.greenDark }}><CheckCircle2 size={14} />Saved</span>}
+            </div>
           </div>
           <div className="mt-3 flex flex-col gap-2 max-h-52 overflow-y-auto">
             {activities.map(a => (
@@ -1113,6 +1211,7 @@ function LeadDetail({ lead, activities, onClose, updateLead, deleteLead, logActi
                 <div style={{ color: C.slate }}>{a.notes}</div>
               </div>
             ))}
+            {activities.length === 0 && <div className="text-xs" style={{ color: C.slate }}>No activity logged yet.</div>}
           </div>
         </Section>
 
@@ -1144,7 +1243,7 @@ function NewLeadModal({ onClose, onCreate }) {
   const [f, setF] = useState({
     companyName: "", industry: "Logistics Company", city: "", state: "", contactFirst: "", contactLast: "",
     jobTitle: "Operations Manager", email: "", phone: "", source: "Cold Call", priority: "Warm",
-    assignedTo: "Felipe Velez", estMonthlyRevenue: 5000, services: [],
+    assignedTo: "Felipe Velez", estMonthlyRevenue: 0, services: [],
   });
   const toggleService = (s) => setF(p => ({ ...p, services: p.services.includes(s) ? p.services.filter(x => x !== s) : [...p.services, s] }));
   const set = (k) => (e) => setF(p => ({ ...p, [k]: e.target.value }));
@@ -1181,12 +1280,11 @@ function NewLeadModal({ onClose, onCreate }) {
           <div><FieldLabel>Industry</FieldLabel><input value={f.industry} onChange={set("industry")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>City</FieldLabel><input value={f.city} onChange={set("city")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>State</FieldLabel><input value={f.state} onChange={set("state")} maxLength={2} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
-          <div><FieldLabel>Contact First *</FieldLabel><input value={f.contactFirst} onChange={set("contactFirst")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
-          <div><FieldLabel>Contact Last</FieldLabel><input value={f.contactLast} onChange={set("contactLast")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>First Name *</FieldLabel><input value={f.contactFirst} onChange={set("contactFirst")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Last Name</FieldLabel><input value={f.contactLast} onChange={set("contactLast")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>Job Title</FieldLabel><input value={f.jobTitle} onChange={set("jobTitle")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>Email</FieldLabel><input value={f.email} onChange={set("email")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>Phone</FieldLabel><input value={f.phone} onChange={set("phone")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
-          <div><FieldLabel>Est. Monthly Revenue</FieldLabel><input type="number" value={f.estMonthlyRevenue} onChange={set("estMonthlyRevenue")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>Source</FieldLabel>
             <select value={f.source} onChange={set("source")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>{SOURCES.map(s => <option key={s}>{s}</option>)}</select>
           </div>
