@@ -36,21 +36,21 @@ function applyTheme(name) {
 const STAGES = [
   "New Lead", "Attempting Contact", "Contacted", "Discovery / Qualification",
   "Qualified Opportunity", "Meeting Scheduled", "Quote Requested", "Quote Sent",
-  "Negotiation", "Trial Load / First Shipment", "Won – Active Customer", "Lost",
+  "Negotiation", "Trial Load / First Shipment", "Credit App", "Won – Active Customer", "Lost",
   "Nurturing / Future Opportunity",
 ];
 const STAGE_COLORS = {
   "New Lead": "#94a3b8", "Attempting Contact": "#60a5fa", "Contacted": "#38bdf8",
   "Discovery / Qualification": "#818cf8", "Qualified Opportunity": "#a78bfa",
   "Meeting Scheduled": "#f472b6", "Quote Requested": "#fb923c", "Quote Sent": "#fbbf24",
-  "Negotiation": "#eab308", "Trial Load / First Shipment": "#4ade80",
+  "Negotiation": "#eab308", "Trial Load / First Shipment": "#4ade80", "Credit App": "#14b8a6",
   "Won – Active Customer": "#39d639", "Lost": "#ef4444",
   "Nurturing / Future Opportunity": "#a1a1aa",
 };
 const STAGE_PROB = {
   "New Lead": 5, "Attempting Contact": 10, "Contacted": 15, "Discovery / Qualification": 25,
   "Qualified Opportunity": 35, "Meeting Scheduled": 45, "Quote Requested": 50, "Quote Sent": 60,
-  "Negotiation": 75, "Trial Load / First Shipment": 90, "Won – Active Customer": 100,
+  "Negotiation": 75, "Trial Load / First Shipment": 90, "Credit App": 95, "Won – Active Customer": 100,
   "Lost": 0, "Nurturing / Future Opportunity": 10,
 };
 const SERVICES = ["Dry Van", "Reefer", "Flatbed", "FTL", "LTL", "Cross-Border", "Warehousing",
@@ -519,14 +519,22 @@ function CRMApp({ session }) {
     return <div className="h-screen w-full flex items-center justify-center" style={{ background: C.bg, color: C.slate }}>Loading CRM…</div>;
   }
 
+  const todayStr = fmt(TODAY);
+  const scopeLeads = myRep ? leads.filter(l => l.assignedTo === myRep) : leads;
+  const scopeOpenTasks = myRep ? tasks.filter(t => t.assignedTo === myRep && !t.done) : tasks.filter(t => !t.done);
+  const inProgressCount = scopeLeads.filter(l => l.stage !== "Won – Active Customer" && l.stage !== "Lost").length;
+  const dueTodayCount = scopeOpenTasks.filter(t => t.dueDate === todayStr).length;
+  const overdueCount = scopeOpenTasks.filter(t => t.dueDate < todayStr).length;
+  const customersCount = scopeLeads.filter(l => l.stage === "Won – Active Customer").length;
+
   const NAV = [
     { key: "myday", label: "My Day", icon: Sun },
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "leads", label: "Leads", icon: Users },
     { key: "pipeline", label: "Pipeline", icon: KanbanSquare },
-    { key: "activities", label: "Activities", icon: Phone },
-    { key: "calendar", label: "Calendar", icon: Calendar },
-    { key: "customers", label: "Customers", icon: UserCheck },
+    { key: "activities", label: "Activities", icon: Phone, badge: overdueCount + dueTodayCount },
+    { key: "calendar", label: "Calendar", icon: Calendar, badge: overdueCount + dueTodayCount },
+    { key: "customers", label: "Customers", icon: UserCheck, badge: customersCount },
     { key: "reports", label: "Reports", icon: BarChart3 },
     { key: "team", label: "Sales Team", icon: UsersRound },
   ];
@@ -563,7 +571,14 @@ function CRMApp({ session }) {
               <button key={n.key} onClick={() => setView(n.key)}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
                 style={{ background: active ? C.green : "transparent", color: active ? C.charcoal : "#c9cbd1" }}>
-                <n.icon size={16} />{n.label}
+                <n.icon size={16} />
+                <span className="flex-1 text-left">{n.label}</span>
+                {n.badge > 0 && (
+                  <span className="text-[10px] font-bold rounded-full px-1.5 py-0.5"
+                    style={{ background: active ? C.charcoal : C.hot, color: active ? C.green : "#fff" }}>
+                    {n.badge}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -593,6 +608,26 @@ function CRMApp({ session }) {
             style={{ background: C.green, color: C.charcoal }}>
             <Plus size={16} /> New Lead
           </button>
+        </div>
+
+        <div className="px-6 py-2.5 flex items-center gap-6 shrink-0 flex-wrap bg-white border-b" style={{ borderColor: C.line }}>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-base font-extrabold" style={{ color: C.ink }}>{inProgressCount}</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.slate }}>In Progress</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-base font-extrabold" style={{ color: dueTodayCount > 0 ? C.greenDark : C.ink }}>{dueTodayCount}</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.slate }}>Due Today</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-base font-extrabold" style={{ color: overdueCount > 0 ? C.danger : C.ink }}>{overdueCount}</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.slate }}>Overdue</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-base font-extrabold" style={{ color: C.ink }}>{customersCount}</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.slate }}>Customers</span>
+          </div>
+          {myRep && <span className="text-[11px] ml-auto" style={{ color: C.slate }}>Showing: <strong style={{ color: C.ink }}>{myRep}</strong></span>}
         </div>
 
         <TaskBanner leads={leads} tasks={tasks} myRep={myRep} setView={setView} />
