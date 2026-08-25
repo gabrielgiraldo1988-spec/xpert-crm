@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, Phone, UserCheck,
   BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun,
@@ -60,6 +60,15 @@ const SOURCES = ["Cold Call", "Cold Email", "LinkedIn", "Referral", "Website",
 const PRIORITIES = ["Hot", "Warm", "Cold"];
 const PRIORITY_COLOR = { Hot: C.hot, Warm: C.warm, Cold: C.cold };
 const REPS = ["Felipe Velez", "Manuela Posada"];
+const EMAIL_TO_REP = { "fvelez@lgiinc.com": "Felipe Velez", "mposada@lgiinc.com": "Manuela Posada" };
+const QUICK_TEMPLATES = [
+  "Sent quote, awaiting response.",
+  "Left voicemail, will retry.",
+  "Followed up on outstanding quote — no response yet.",
+  "Client asked for more time to decide.",
+  "Positive call — requested a formal quote.",
+  "Reviewed lane volumes and equipment needs.",
+];
 const LOST_REASONS = ["Pricing", "No Response", "No Capacity", "Timing", "Competitor",
   "Customer Stayed with Current Provider", "Other"];
 const ACTIVITY_TYPES = ["Phone Call", "Email", "LinkedIn Message", "Meeting",
@@ -361,14 +370,38 @@ function CRMApp({ session }) {
   const [activities, setActivities] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("dashboard");
+  const [view, setView] = useState(() => EMAIL_TO_REP[session?.user?.email] ? "myday" : "dashboard");
   const [search, setSearch] = useState("");
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [showNewLead, setShowNewLead] = useState(false);
   const [toast, setToast] = useState(null);
   const [leadFilters, setLeadFilters] = useState({ rep: "All", stage: "All", source: "All", priority: "All" });
+  const [pipelineRep, setPipelineRep] = useState("All");
   const [activityRep, setActivityRep] = useState("All");
   const [calendarRep, setCalendarRep] = useState("All");
+  const myRep = EMAIL_TO_REP[session?.user?.email] || null;
+  const [defaultsApplied, setDefaultsApplied] = useState(false);
+  useEffect(() => {
+    if (myRep && !defaultsApplied) {
+      setLeadFilters((prev) => ({ ...prev, rep: myRep }));
+      setPipelineRep(myRep);
+      setActivityRep(myRep);
+      setCalendarRep(myRep);
+      setDefaultsApplied(true);
+    }
+  }, [myRep, defaultsApplied]);
+  const searchInputRef = useRef(null);
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setView("leads");
+        setTimeout(() => searchInputRef.current && searchInputRef.current.focus(), 0);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
   const [theme, setTheme] = useState(() => {
     const saved = typeof window !== "undefined" ? window.localStorage.getItem("xpert-crm-theme") : null;
     return saved === "dark" || saved === "light" ? saved : "light";
@@ -479,6 +512,7 @@ function CRMApp({ session }) {
   }
 
   const NAV = [
+    { key: "myday", label: "My Day", icon: Sun },
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "leads", label: "Leads", icon: Users },
     { key: "pipeline", label: "Pipeline", icon: KanbanSquare },
@@ -541,9 +575,9 @@ function CRMApp({ session }) {
         <div className="h-16 shrink-0 bg-white border-b flex items-center justify-between px-6 gap-4" style={{ borderColor: C.line }}>
           <div className="relative w-full max-w-md">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.slate }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)}
+            <input ref={searchInputRef} value={search} onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") setView("leads"); }}
-              placeholder="Search company, contact, phone, state…"
+              placeholder="Search company, contact, phone, state… (Ctrl+K)"
               className="w-full pl-9 pr-3 py-2 rounded-lg border text-sm outline-none" style={{ borderColor: C.line, background: C.bg }} />
           </div>
           <button onClick={() => setShowNewLead(true)}
@@ -553,10 +587,13 @@ function CRMApp({ session }) {
           </button>
         </div>
 
+        <TaskBanner leads={leads} tasks={tasks} myRep={myRep} setView={setView} />
+
         <div className="flex-1 overflow-y-auto p-6">
+          {view === "myday" && <MyDayView leads={leads} tasks={tasks} activities={activities} myRep={myRep} setSelectedLeadId={setSelectedLeadId} setView={setView} />}
           {view === "dashboard" && <Dashboard leads={leads} activities={activities} setView={setView} setSelectedLeadId={setSelectedLeadId} />}
           {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} />}
-          {view === "pipeline" && <PipelineView leads={leads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "pipeline" && <PipelineView leads={leads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} repFilter={pipelineRep} setRepFilter={setPipelineRep} />}
           {view === "activities" && <ActivitiesView leads={leads} activities={activities} logActivity={logActivity} setSelectedLeadId={setSelectedLeadId} repFilter={activityRep} setRepFilter={setActivityRep} />}
           {view === "calendar" && <CalendarView tasks={tasks} toggleTaskDone={toggleTaskDone} setSelectedLeadId={setSelectedLeadId} repFilter={calendarRep} setRepFilter={setCalendarRep} />}
           {view === "customers" && <CustomersView leads={leads} setSelectedLeadId={setSelectedLeadId} />}
@@ -576,6 +613,112 @@ function CRMApp({ session }) {
 }
 
 /* ============================== DASHBOARD ============================== */
+/* ============================== TASK BANNER ============================== */
+function TaskBanner({ leads, tasks, myRep, setView }) {
+  const [dismissed, setDismissed] = useState(false);
+  const todayStr = fmt(TODAY);
+  const relevant = myRep ? tasks.filter(t => t.assignedTo === myRep) : tasks;
+  const open = relevant.filter(t => !t.done);
+  const overdueCount = open.filter(t => t.dueDate < todayStr).length;
+  const todayCount = open.filter(t => t.dueDate === todayStr).length;
+
+  if (dismissed || (overdueCount === 0 && todayCount === 0)) return null;
+
+  return (
+    <div className="px-6 py-2.5 flex items-center justify-between gap-3 shrink-0"
+      style={{ background: overdueCount > 0 ? C.hot + "1a" : C.greenTint, borderBottom: `1px solid ${C.line}` }}>
+      <div className="flex items-center gap-2 text-sm font-medium" style={{ color: overdueCount > 0 ? C.danger : C.greenDark }}>
+        {overdueCount > 0 && <AlertTriangle size={15} />}
+        {overdueCount > 0 && <span>{overdueCount} overdue task{overdueCount !== 1 ? "s" : ""}</span>}
+        {overdueCount > 0 && todayCount > 0 && <span>·</span>}
+        {todayCount > 0 && <span>{todayCount} due today</span>}
+      </div>
+      <div className="flex items-center gap-3">
+        <button onClick={() => setView("calendar")} className="text-xs font-semibold underline" style={{ color: overdueCount > 0 ? C.danger : C.greenDark }}>View Calendar</button>
+        <button onClick={() => setDismissed(true)} className="p-1"><X size={14} style={{ color: C.slate }} /></button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================== MY DAY ============================== */
+function MyDayView({ leads, tasks, activities, myRep, setSelectedLeadId, setView }) {
+  const todayStr = fmt(TODAY);
+  const scope = myRep ? leads.filter(l => l.assignedTo === myRep) : leads;
+  const myTasks = myRep ? tasks.filter(t => t.assignedTo === myRep) : tasks;
+  const openTasks = myTasks.filter(t => !t.done);
+  const overdue = openTasks.filter(t => t.dueDate < todayStr).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+  const today = openTasks.filter(t => t.dueDate === todayStr);
+
+  const openLeads = scope.filter(l => l.stage !== "Won – Active Customer" && l.stage !== "Lost");
+  const hotUntouched = [...openLeads]
+    .filter(l => l.priority === "Hot")
+    .sort((a, b) => dateOnly(a.lastActivityDate) - dateOnly(b.lastActivityDate))
+    .slice(0, 3);
+
+  const firstName = myRep ? myRep.split(" ")[0] : "there";
+  const greeting = TODAY.getHours() < 12 ? "Good morning" : TODAY.getHours() < 18 ? "Good afternoon" : "Good evening";
+
+  const TaskRow = ({ t, tone }) => (
+    <div key={t.id} onClick={() => setSelectedLeadId(t.leadId)} className="flex items-center justify-between border rounded-lg px-3 py-2 cursor-pointer hover:opacity-80" style={{ borderColor: C.line }}>
+      <div>
+        <div className="text-sm font-semibold" style={{ color: C.ink }}>{t.companyName}</div>
+        <div className="text-xs" style={{ color: C.slate }}>{t.type} · {t.notes}</div>
+      </div>
+      <span className="text-xs font-semibold" style={{ color: tone }}>{t.dueDate}</span>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h1 className="text-xl font-bold" style={{ color: C.ink }}>{greeting}, {firstName} 👋</h1>
+        <p className="text-sm" style={{ color: C.slate }}>Here's what needs your attention today · {fmt(TODAY)}</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl border p-4" style={{ borderColor: C.line }}>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: C.danger }}>
+            <AlertTriangle size={15} />Overdue ({overdue.length})
+          </h3>
+          <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+            {overdue.map(t => <TaskRow key={t.id} t={t} tone={C.danger} />)}
+            {overdue.length === 0 && <span className="text-xs" style={{ color: C.slate }}>Nothing overdue. Nice work.</span>}
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border p-4" style={{ borderColor: C.line }}>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: C.greenDark }}>
+            <Calendar size={15} />Due Today ({today.length})
+          </h3>
+          <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+            {today.map(t => <TaskRow key={t.id} t={t} tone={C.greenDark} />)}
+            {today.length === 0 && <span className="text-xs" style={{ color: C.slate }}>No tasks due today.</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border p-4" style={{ borderColor: C.line }}>
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: C.ink }}>
+          <Flame size={15} style={{ color: C.hot }} />Hot Leads Needing Attention
+        </h3>
+        <div className="flex flex-col gap-2">
+          {hotUntouched.map(l => (
+            <div key={l.id} onClick={() => setSelectedLeadId(l.id)} className="flex items-center justify-between border rounded-lg px-3 py-2 cursor-pointer hover:opacity-80" style={{ borderColor: C.line }}>
+              <div>
+                <div className="text-sm font-semibold" style={{ color: C.ink }}>{l.companyName}</div>
+                <div className="text-xs" style={{ color: C.slate }}>{l.contactFirst} {l.contactLast} · {l.stage}</div>
+              </div>
+              <span className="text-xs" style={{ color: C.slate }}>Last activity: {l.lastActivityDate}</span>
+            </div>
+          ))}
+          {hotUntouched.length === 0 && <span className="text-xs" style={{ color: C.slate }}>No hot leads pending right now.</span>}
+        </div>
+        <button onClick={() => setView("leads")} className="mt-3 text-xs font-semibold flex items-center gap-0.5" style={{ color: C.green }}>See all my leads <ChevronRight size={12} /></button>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ leads, activities, setView, setSelectedLeadId }) {
   const todayStr = fmt(TODAY);
   const openLeads = leads.filter(l => l.stage !== "Won – Active Customer" && l.stage !== "Lost");
@@ -720,9 +863,17 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
           <tbody>
             {filtered.map(l => {
               const isOverdue = l.nextFollowupDate && dateOnly(l.nextFollowupDate) < dateOnly(TODAY);
+              const isStale = l.stage !== "Won – Active Customer" && l.stage !== "Lost" &&
+                l.lastActivityDate && (TODAY - dateOnly(l.lastActivityDate)) / 86400000 > 5;
               return (
                 <tr key={l.id} onClick={() => setSelectedLeadId(l.id)} className="border-t cursor-pointer hover:bg-gray-50" style={{ borderColor: C.line }}>
-                  <td className="px-4 py-2.5 font-medium" style={{ color: C.ink }}>{l.companyName}<div className="text-xs font-normal" style={{ color: C.slate }}>{l.industry}</div></td>
+                  <td className="px-4 py-2.5 font-medium" style={{ color: C.ink }}>
+                    <div className="flex items-center gap-1.5">
+                      {isStale && <AlertTriangle size={13} style={{ color: C.hot }} />}
+                      {l.companyName}
+                    </div>
+                    <div className="text-xs font-normal" style={{ color: C.slate }}>{l.industry}</div>
+                  </td>
                   <td className="px-4 py-2.5" style={{ color: C.ink }}>{l.contactFirst} {l.contactLast}<div className="text-xs" style={{ color: C.slate }}>{l.jobTitle}</div></td>
                   <td className="px-4 py-2.5" style={{ color: C.ink }}>{l.state}</td>
                   <td className="px-4 py-2.5" style={{ color: C.slate }}>{l.source}</td>
@@ -744,14 +895,20 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
 }
 
 /* ============================== PIPELINE (KANBAN) ============================== */
-function PipelineView({ leads, updateLead, setSelectedLeadId }) {
+function PipelineView({ leads, updateLead, setSelectedLeadId, repFilter, setRepFilter }) {
   const [dragId, setDragId] = useState(null);
+  const scoped = repFilter === "All" ? leads : leads.filter(l => l.assignedTo === repFilter);
+  const isStale = (l) => l.stage !== "Won – Active Customer" && l.stage !== "Lost" &&
+    l.lastActivityDate && (TODAY - dateOnly(l.lastActivityDate)) / 86400000 > 5;
   return (
     <div className="flex flex-col gap-4 h-full">
-      <h1 className="text-xl font-bold" style={{ color: C.ink }}>Sales Pipeline</h1>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h1 className="text-xl font-bold" style={{ color: C.ink }}>Sales Pipeline</h1>
+        <FilterSelect value={repFilter} onChange={setRepFilter} options={REPS} label="Rep" />
+      </div>
       <div className="flex gap-3 overflow-x-auto pb-4">
         {STAGES.filter(s => s !== "Lost" && s !== "Nurturing / Future Opportunity").concat(["Nurturing / Future Opportunity", "Lost"]).map(stage => {
-          const items = leads.filter(l => l.stage === stage);
+          const items = scoped.filter(l => l.stage === stage);
           const value = items.reduce((s, l) => s + l.estMonthlyRevenue, 0);
           return (
             <div key={stage} onDragOver={(e) => e.preventDefault()}
@@ -768,7 +925,10 @@ function PipelineView({ leads, updateLead, setSelectedLeadId }) {
                   <div key={l.id} draggable onDragStart={() => setDragId(l.id)} onClick={() => setSelectedLeadId(l.id)}
                     className="bg-white rounded-lg p-2.5 shadow-sm cursor-pointer border-l-4"
                     style={{ borderLeftColor: PRIORITY_COLOR[l.priority] }}>
-                    <div className="text-sm font-semibold" style={{ color: C.ink }}>{l.companyName}</div>
+                    <div className="flex items-center gap-1">
+                      {isStale(l) && <AlertTriangle size={11} style={{ color: C.hot }} titleAccess="No activity in 5+ days" />}
+                      <div className="text-sm font-semibold" style={{ color: C.ink }}>{l.companyName}</div>
+                    </div>
                     <div className="text-xs" style={{ color: C.slate }}>{l.contactFirst} {l.contactLast}</div>
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-xs font-medium" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>{money(l.estMonthlyRevenue)}</span>
@@ -860,6 +1020,16 @@ function ActivitiesView({ leads, activities, logActivity, setSelectedLeadId, rep
   );
 }
 
+function TemplatePicker({ onPick }) {
+  return (
+    <select defaultValue="" onChange={(e) => { if (e.target.value) { onPick(e.target.value); e.target.value = ""; } }}
+      className="text-xs border rounded-md px-2 py-1" style={{ borderColor: C.line, color: C.slate }}>
+      <option value="">Quick template…</option>
+      {QUICK_TEMPLATES.map(t => <option key={t} value={t}>{t}</option>)}
+    </select>
+  );
+}
+
 function QuickLog({ lead, onDone, onCancel }) {
   const [type, setType] = useState("Phone Call");
   const [notes, setNotes] = useState("");
@@ -869,6 +1039,7 @@ function QuickLog({ lead, onDone, onCancel }) {
       <select value={type} onChange={e => setType(e.target.value)} className="text-xs border rounded-md px-2 py-1" style={{ borderColor: C.line }}>
         {ACTIVITY_TYPES.map(t => <option key={t}>{t}</option>)}
       </select>
+      <TemplatePicker onPick={setNotes} />
       <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes…" className="text-xs border rounded-md px-2 py-1" style={{ borderColor: C.line }} />
       <input type="date" value={next} onChange={e => setNext(e.target.value)} className="text-xs border rounded-md px-2 py-1" style={{ borderColor: C.line }} />
       <div className="flex gap-1.5">
@@ -1333,6 +1504,7 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, onClose, updateLe
             <select value={type} onChange={e => setType(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>
               {ACTIVITY_TYPES.map(t => <option key={t}>{t}</option>)}
             </select>
+            <TemplatePicker onPick={setNotes} />
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What needs to be done? (task comment)" rows={2}
               className="border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} />
             <div className="flex items-center gap-2">
