@@ -1150,14 +1150,24 @@ function CalendarView({ tasks, toggleTaskDone, setSelectedLeadId, repFilter, set
   );
 }
 
+function computeHealthScore(c, maxRevenue) {
+  const daysSinceLoad = c.lastLoadDate ? Math.max(0, (TODAY - new Date(c.lastLoadDate)) / 86400000) : 30;
+  const recencyScore = Math.max(0, 100 - daysSinceLoad * 4);
+  const revenueScore = maxRevenue > 0 ? (c.estMonthlyRevenue / maxRevenue) * 100 : 50;
+  const declaredScore = { Active: 100, Growing: 90, "At Risk": 40, Inactive: 20, "Lost Customer": 0 }[c.customerHealth] ?? 50;
+  return Math.round(recencyScore * 0.4 + revenueScore * 0.3 + declaredScore * 0.3);
+}
+
 function CustomersView({ leads, setSelectedLeadId }) {
   const customers = leads.filter(l => l.stage === "Won – Active Customer");
   const healthColor = { Active: C.green, Growing: "#3b82f6", "At Risk": C.warm, Inactive: C.slate, "Lost Customer": C.danger };
+  const maxRevenue = Math.max(1, ...customers.map(c => c.estMonthlyRevenue));
+  const scored = customers.map(c => ({ ...c, healthScore: computeHealthScore(c, maxRevenue) })).sort((a, b) => a.healthScore - b.healthScore);
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-xl font-bold" style={{ color: C.ink }}>Active Customers <span style={{ color: C.slate, fontWeight: 500 }}>({customers.length})</span></h1>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {customers.map(c => {
+        {scored.map(c => {
           const months = Math.max(1, Math.round((TODAY - new Date(c.startDate)) / (1000 * 60 * 60 * 24 * 30)));
           const lifetime = c.estMonthlyRevenue * months;
           return (
@@ -1167,7 +1177,10 @@ function CustomersView({ leads, setSelectedLeadId }) {
                   <div className="font-bold" style={{ color: C.ink }}>{c.companyName}</div>
                   <div className="text-xs" style={{ color: C.slate }}>{c.industry} · {c.city}, {c.state}</div>
                 </div>
-                <span className="text-xs font-semibold rounded-full px-2 py-0.5" style={{ background: healthColor[c.customerHealth] + "1a", color: healthColor[c.customerHealth] }}>{c.customerHealth}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold rounded-full px-2 py-0.5" style={{ background: healthColor[c.customerHealth] + "1a", color: healthColor[c.customerHealth] }}>{c.customerHealth}</span>
+                  <ScoreRing score={c.healthScore} size={34} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2 mt-3 text-sm">
                 <div><div className="text-[11px] uppercase" style={{ color: C.slate }}>Monthly Rev.</div><div className="font-semibold" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>{money(c.estMonthlyRevenue)}</div></div>
