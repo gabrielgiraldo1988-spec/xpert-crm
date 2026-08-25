@@ -97,6 +97,8 @@ export default async function handler(req, res) {
       if (overdue.length === 0 && dueToday.length === 0 && hotLeads.length === 0) continue;
 
       const html = buildHtml(repName, { overdue, dueToday, hotLeads, staleCount });
+      const testOverride = process.env.DIGEST_TEST_OVERRIDE_EMAIL;
+      const toAddress = testOverride || REP_EMAILS[repName];
 
       await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -106,8 +108,10 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           from: process.env.DIGEST_FROM_EMAIL || "Xpert Freight <onboarding@resend.dev>",
-          to: REP_EMAILS[repName],
-          subject: `Your day at Xpert Freight — ${today}`,
+          to: toAddress,
+          subject: testOverride
+            ? `[TEST for ${repName}] Your day at Xpert Freight — ${today}`
+            : `Your day at Xpert Freight — ${today}`,
           html,
         }),
       });
