@@ -111,7 +111,7 @@ const JOB_TITLES = ["Operations Manager", "Transportation Manager", "Logistics D
   "Supply Chain Analyst", "General Manager"];
 
 /* ============================== HELPERS ============================== */
-const TODAY = new Date(2026, 7, 24); // Aug 24, 2026
+const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })(); // real "today", computed fresh on every page load
 const rint = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = (arr) => arr[rint(0, arr.length - 1)];
 const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
