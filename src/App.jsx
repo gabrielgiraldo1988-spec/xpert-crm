@@ -473,6 +473,14 @@ function CRMApp({ session }) {
     });
   }, [activities, tasks, persist]);
 
+  const addLeadsBulk = useCallback((newLeads) => {
+    setLeads((prev) => {
+      const next = [...newLeads, ...prev];
+      persist(next, activities, tasks);
+      return next;
+    });
+  }, [activities, tasks, persist]);
+
   const logActivity = useCallback((leadId, act, dueDate) => {
     setLeads((prevL) => {
       const lead = prevL.find((l) => l.id === leadId);
@@ -592,7 +600,7 @@ function CRMApp({ session }) {
         <div className="flex-1 overflow-y-auto p-6">
           {view === "myday" && <MyDayView leads={leads} tasks={tasks} activities={activities} myRep={myRep} setSelectedLeadId={setSelectedLeadId} setView={setView} />}
           {view === "dashboard" && <Dashboard leads={leads} activities={activities} setView={setView} setSelectedLeadId={setSelectedLeadId} />}
-          {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} />}
+          {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} addLeadsBulk={addLeadsBulk} />}
           {view === "pipeline" && <PipelineView leads={leads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} repFilter={pipelineRep} setRepFilter={setPipelineRep} />}
           {view === "activities" && <ActivitiesView leads={leads} activities={activities} logActivity={logActivity} setSelectedLeadId={setSelectedLeadId} repFilter={activityRep} setRepFilter={setActivityRep} />}
           {view === "calendar" && <CalendarView tasks={tasks} toggleTaskDone={toggleTaskDone} setSelectedLeadId={setSelectedLeadId} repFilter={calendarRep} setRepFilter={setCalendarRep} />}
@@ -818,6 +826,95 @@ function Dashboard({ leads, activities, setView, setSelectedLeadId }) {
   );
 }
 
+/* ============================== CSV IMPORT / EXPORT ============================== */
+const CSV_COLUMNS = [
+  "companyName", "contactFirst", "contactLast", "jobTitle", "email", "phone",
+  "city", "state", "source", "priority", "assignedTo", "servicesInterest", "stage",
+];
+
+function csvEscape(value) {
+  const s = String(value ?? "");
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function leadsToCSV(leads) {
+  const rows = leads.map((l) => CSV_COLUMNS.map((col) =>
+    csvEscape(col === "servicesInterest" ? (l.servicesInterest || []).join(";") : l[col])
+  ).join(","));
+  return [CSV_COLUMNS.join(","), ...rows].join("\n");
+}
+
+function parseCSV(text) {
+  const rows = [];
+  let cur = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { cur.push(field); field = ""; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        cur.push(field); field = ""; rows.push(cur); cur = [];
+      } else field += c;
+    }
+  }
+  if (field.length || cur.length) { cur.push(field); rows.push(cur); }
+  return rows.filter((r) => r.length > 1 || (r[0] !== undefined && r[0] !== ""));
+}
+
+function downloadTextFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime || "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function csvRowsToLeads(rows) {
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((h) => h.trim());
+  const idx = (name) => headers.indexOf(name);
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const get = (name) => { const i = idx(name); return i === -1 ? "" : (row[i] || "").trim(); };
+    const companyName = get("companyName");
+    const contactFirst = get("contactFirst");
+    if (!companyName || !contactFirst) continue; // skip incomplete rows
+    const priorityRaw = get("priority");
+    const priority = PRIORITIES.includes(priorityRaw) ? priorityRaw : "Warm";
+    const assignedToRaw = get("assignedTo");
+    const assignedTo = REPS.includes(assignedToRaw) ? assignedToRaw : REPS[0];
+    const sourceRaw = get("source");
+    const source = SOURCES.includes(sourceRaw) ? sourceRaw : "Other";
+    const stageRaw = get("stage");
+    const stage = STAGES.includes(stageRaw) ? stageRaw : "New Lead";
+    const servicesRaw = get("servicesInterest");
+    const servicesInterest = servicesRaw ? servicesRaw.split(";").map((s) => s.trim()).filter(Boolean) : ["Dry Van"];
+    const score = Math.min(100, Math.round((priority === "Hot" ? 40 : priority === "Warm" ? 22 : 8) + 20));
+
+    out.push({
+      id: "L" + Date.now() + "-" + r, companyName, legalName: companyName, industry: "",
+      companySize: "11-50", trucks: 0, employees: 0, website: "", city: get("city"), state: get("state"),
+      timeZone: "CT", contactFirst, contactLast: get("contactLast"), jobTitle: get("jobTitle") || "Operations Manager",
+      department: "Operations", email: get("email"), phone: get("phone"), mobile: get("phone"), linkedin: "",
+      source, priority, score, stage, assignedTo, servicesInterest,
+      originStates: "", destinationStates: "", mainLanes: "", equipmentType: "Dry Van",
+      avgWeeklyLoads: 0, avgMonthlyLoads: 0, avgWeight: "", commodity: "", hazmat: false, tempControlled: false,
+      appointmentRequired: false, currentProvider: "Unknown", estMonthlyRevenue: 0, estAnnualRevenue: 0,
+      avgRevPerLoad: 0, probability: STAGE_PROB[stage], expectedCloseDate: null,
+      createdDate: fmt(TODAY), lastActivityDate: fmt(TODAY), nextFollowupDate: null, lostReason: null,
+      callsCount: 0, emailsCount: 0, followupsCompleted: 0, salesCycleDays: null, startDate: null,
+      customerHealth: null, lastLoadDate: null,
+    });
+  }
+  return out;
+}
+
 function FilterSelect({ value, onChange, options, label }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} className="text-sm border rounded-lg px-2.5 py-1.5" style={{ borderColor: C.line }}>
@@ -828,9 +925,11 @@ function FilterSelect({ value, onChange, options, label }) {
 }
 
 /* ============================== LEADS ============================== */
-function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFilters }) {
+function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFilters, addLeadsBulk }) {
   const { rep, stage, source, priority } = filters;
   const setField = (key) => (val) => setFilters((prev) => ({ ...prev, [key]: val }));
+  const fileInputRef = useRef(null);
+  const [importMsg, setImportMsg] = useState("");
 
   const filtered = leads.filter(l => {
     const q = search.trim().toLowerCase();
@@ -839,17 +938,48 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
       (source === "All" || l.source === source) && (priority === "All" || l.priority === priority);
   });
 
+  const handleExport = () => {
+    downloadTextFile(`xpert-leads-${fmt(TODAY)}.csv`, leadsToCSV(filtered));
+  };
+  const handleTemplate = () => {
+    downloadTextFile("xpert-leads-template.csv", CSV_COLUMNS.join(",") + "\n");
+  };
+  const handleImportFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rows = parseCSV(String(reader.result));
+      const newLeads = csvRowsToLeads(rows);
+      if (newLeads.length === 0) {
+        setImportMsg("No se encontraron filas válidas (revisa que tengan al menos companyName y contactFirst).");
+      } else {
+        addLeadsBulk(newLeads);
+        setImportMsg(`Se importaron ${newLeads.length} lead(s) correctamente.`);
+      }
+      setTimeout(() => setImportMsg(""), 5000);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold" style={{ color: C.ink }}>Leads <span style={{ color: C.slate, fontWeight: 500 }}>({filtered.length})</span></h1>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
           <FilterSelect value={rep} onChange={setField("rep")} options={REPS} label="Rep" />
           <FilterSelect value={stage} onChange={setField("stage")} options={STAGES} label="Stage" />
           <FilterSelect value={source} onChange={setField("source")} options={SOURCES} label="Source" />
           <FilterSelect value={priority} onChange={setField("priority")} options={PRIORITIES} label="Priority" />
+          <div className="w-px h-6" style={{ background: C.line }} />
+          <button onClick={handleExport} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border" style={{ borderColor: C.line, color: C.ink }}>Export CSV</button>
+          <button onClick={handleTemplate} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border" style={{ borderColor: C.line, color: C.ink }}>Template</button>
+          <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border" style={{ borderColor: C.line, color: C.ink }}>Import CSV</button>
+          <input ref={fileInputRef} type="file" accept=".csv" onChange={handleImportFile} className="hidden" />
         </div>
       </div>
+      {importMsg && <div className="text-xs font-medium rounded-lg px-3 py-2" style={{ background: C.greenTint, color: C.greenDark }}>{importMsg}</div>}
 
       <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: C.line }}>
         <table className="w-full text-sm">
