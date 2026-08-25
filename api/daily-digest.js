@@ -61,8 +61,15 @@ function buildHtml(repName, { overdue, dueToday, hotLeads, staleCount }) {
 
 export default async function handler(req, res) {
   // Only Vercel's own cron scheduler (or someone with the secret) can trigger this.
+  // Accept the secret either as a header (how Vercel Cron sends it) or as
+  // ?secret=... in the URL (for easy manual testing from a browser).
   const auth = req.headers["authorization"];
-  if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  const querySecret = req.query && req.query.secret;
+  const authorized =
+    !process.env.CRON_SECRET ||
+    auth === `Bearer ${process.env.CRON_SECRET}` ||
+    querySecret === process.env.CRON_SECRET;
+  if (!authorized) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -82,6 +89,7 @@ export default async function handler(req, res) {
     const today = fmt(new Date());
 
     let sent = 0;
+    const debug = [];
     for (const repName of Object.keys(REP_EMAILS)) {
       const myTasks = tasks.filter((t) => t.assignedTo === repName && !t.done);
       const overdue = myTasks.filter((t) => t.dueDate < today);
@@ -94,13 +102,16 @@ export default async function handler(req, res) {
       const staleCount = myLeads.filter((l) => l.lastActivityDate && (new Date() - new Date(l.lastActivityDate)) / 86400000 > 7).length;
 
       // Skip sending an empty digest with nothing to report.
-      if (overdue.length === 0 && dueToday.length === 0 && hotLeads.length === 0) continue;
+      if (overdue.length === 0 && dueToday.length === 0 && hotLeads.length === 0) {
+        debug.push({ rep: repName, overdue: overdue.length, dueToday: dueToday.length, hotLeads: hotLeads.length, skipped: "nothing to report" });
+        continue;
+      }
 
       const html = buildHtml(repName, { overdue, dueToday, hotLeads, staleCount });
       const testOverride = process.env.DIGEST_TEST_OVERRIDE_EMAIL;
       const toAddress = testOverride || REP_EMAILS[repName];
 
-      await fetch("https://api.resend.com/emails", {
+      const resendRes = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
@@ -115,10 +126,12 @@ export default async function handler(req, res) {
           html,
         }),
       });
-      sent++;
+      const resendBody = await resendRes.json().catch(() => null);
+      debug.push({ rep: repName, to: toAddress, overdue: overdue.length, dueToday: dueToday.length, hotLeads: hotLeads.length, resendStatus: resendRes.status, resendBody });
+      if (resendRes.ok) sent++;
     }
 
-    return res.status(200).json({ sent });
+    return res.status(200).json({ sent, today, debug });
   } catch (e) {
     return res.status(500).json({ error: String(e) });
   }
