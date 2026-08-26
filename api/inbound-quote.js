@@ -24,18 +24,35 @@ function verifySvixSignature(rawBody, headers, secret) {
   const id = headers["svix-id"];
   const timestamp = headers["svix-timestamp"];
   const signatureHeader = headers["svix-signature"];
-  if (!id || !timestamp || !signatureHeader || !secret) return false;
+
+  // Trim defensively in case the secret was copy-pasted with a stray
+  // space or newline into the Vercel environment variable.
+  const cleanSecret = (secret || "").trim();
+
+  console.log("[inbound-quote] DEBUG headers present:", {
+    hasId: !!id, hasTimestamp: !!timestamp, hasSignature: !!signatureHeader,
+    secretLength: cleanSecret.length, rawBodyLength: rawBody.length,
+  });
+
+  if (!id || !timestamp || !signatureHeader || !cleanSecret) {
+    console.log("[inbound-quote] DEBUG missing required piece, failing early");
+    return false;
+  }
 
   // Resend/Svix secrets are prefixed "whsec_" followed by base64 bytes.
-  const secretBytes = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
+  const secretBytes = Buffer.from(cleanSecret.replace(/^whsec_/, ""), "base64");
   const signedContent = `${id}.${timestamp}.${rawBody}`;
   const expected = crypto.createHmac("sha256", secretBytes).update(signedContent).digest("base64");
 
   const candidates = signatureHeader.split(" ").map((s) => s.split(",")[1]).filter(Boolean);
+  console.log("[inbound-quote] DEBUG expected signature:", expected);
+  console.log("[inbound-quote] DEBUG received candidates:", candidates);
+
   return candidates.some((candidate) => {
     try {
       return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(expected));
     } catch (e) {
+      console.log("[inbound-quote] DEBUG comparison threw (likely length mismatch):", e.message);
       return false;
     }
   });
