@@ -120,7 +120,15 @@ const rint = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = (arr) => arr[rint(0, arr.length - 1)];
 const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
 const fmt = (d) => d ? new Date(d).toISOString().slice(0, 10) : "";
-const dateOnly = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const dateOnly = (d) => {
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const [year, month, day] = d.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
 const money = (n) => "$" + Math.round(n).toLocaleString("en-US");
 const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = rint(0, i);[a[i], a[j]] = [a[j], a[i]]; } return a; };
 
@@ -376,6 +384,12 @@ function CRMApp({ session }) {
   const [tasks, setTasks] = useState([]);
   const [notes, setNotes] = useState([]);
   const [quotes, setQuotes] = useState([]);
+  const leadsRef = useRef(leads);
+  const activitiesRef = useRef(activities);
+  const tasksRef = useRef(tasks);
+  const notesRef = useRef(notes);
+  const quotesRef = useRef(quotes);
+  const persistQueueRef = useRef(Promise.resolve());
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState(() => EMAIL_TO_REP[session?.user?.email] ? "myday" : "dashboard");
   const [search, setSearch] = useState("");
@@ -430,17 +444,32 @@ function CRMApp({ session }) {
           .maybeSingle();
         if (data && data.value) {
           const parsed = JSON.parse(data.value);
-          setLeads(parsed.leads || []);
-          setActivities(parsed.activities || []);
-          setTasks(parsed.tasks || []);
-          setNotes(parsed.notes || []);
-          setQuotes(parsed.quotes || []);
+          const loadedLeads = parsed.leads || [];
+          const loadedActivities = parsed.activities || [];
+          const loadedTasks = parsed.tasks || [];
+          const loadedNotes = parsed.notes || [];
+          const loadedQuotes = parsed.quotes || [];
+          leadsRef.current = loadedLeads;
+          activitiesRef.current = loadedActivities;
+          tasksRef.current = loadedTasks;
+          notesRef.current = loadedNotes;
+          quotesRef.current = loadedQuotes;
+          setLeads(loadedLeads);
+          setActivities(loadedActivities);
+          setTasks(loadedTasks);
+          setNotes(loadedNotes);
+          setQuotes(loadedQuotes);
           setLoading(false);
           return;
         }
       } catch (e) { /* no stored data yet */ }
       const seedLeads = genLeads();
       const seedActivities = genActivities(seedLeads);
+      leadsRef.current = seedLeads;
+      activitiesRef.current = seedActivities;
+      tasksRef.current = [];
+      notesRef.current = [];
+      quotesRef.current = [];
       setLeads(seedLeads);
       setActivities(seedActivities);
       setTasks([]);
@@ -453,100 +482,98 @@ function CRMApp({ session }) {
     })();
   }, []);
 
-  const persist = useCallback(async (nextLeads, nextActivities, nextTasks, nextNotes, nextQuotes) => {
-    try {
-      await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: nextLeads, activities: nextActivities, tasks: nextTasks, notes: nextNotes, quotes: nextQuotes }) });
-    } catch (e) { /* best-effort */ }
+  const persist = useCallback(() => {
+    const snapshot = {
+      leads: leadsRef.current,
+      activities: activitiesRef.current,
+      tasks: tasksRef.current,
+      notes: notesRef.current,
+      quotes: quotesRef.current,
+    };
+    persistQueueRef.current = persistQueueRef.current
+      .catch(() => {})
+      .then(() => supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify(snapshot) }))
+      .catch(() => {});
+    return persistQueueRef.current;
   }, []);
 
   const updateLead = useCallback((id, patch) => {
-    setLeads((prev) => {
-      const next = prev.map((l) => (l.id === id ? { ...l, ...patch } : l));
-      persist(next, activities, tasks, notes, quotes);
-      return next;
-    });
-  }, [activities, tasks, notes, quotes, persist]);
+    const next = leadsRef.current.map((l) => (l.id === id ? { ...l, ...patch } : l));
+    leadsRef.current = next;
+    setLeads(next);
+    persist();
+  }, [persist]);
 
   const deleteLead = useCallback((id) => {
-    setLeads((prev) => {
-      const next = prev.filter((l) => l.id !== id);
-      persist(next, activities, tasks, notes, quotes);
-      return next;
-    });
+    const next = leadsRef.current.filter((l) => l.id !== id);
+    leadsRef.current = next;
+    setLeads(next);
     setSelectedLeadId(null);
-  }, [activities, tasks, notes, quotes, persist]);
+    persist();
+  }, [persist]);
 
   const addLead = useCallback((lead) => {
-    setLeads((prev) => {
-      const next = [lead, ...prev];
-      persist(next, activities, tasks, notes, quotes);
-      return next;
-    });
-  }, [activities, tasks, notes, quotes, persist]);
+    const next = [lead, ...leadsRef.current];
+    leadsRef.current = next;
+    setLeads(next);
+    persist();
+  }, [persist]);
 
   const addLeadsBulk = useCallback((newLeads) => {
-    setLeads((prev) => {
-      const next = [...newLeads, ...prev];
-      persist(next, activities, tasks, notes, quotes);
-      return next;
-    });
-  }, [activities, tasks, notes, quotes, persist]);
+    const next = [...newLeads, ...leadsRef.current];
+    leadsRef.current = next;
+    setLeads(next);
+    persist();
+  }, [persist]);
 
   const logActivity = useCallback((leadId, act, dueDate) => {
-    setLeads((prevL) => {
-      const lead = prevL.find((l) => l.id === leadId);
-      const nextL = prevL.map((l) => l.id === leadId ? {
-        ...l, lastActivityDate: fmt(TODAY),
-        nextFollowupDate: dueDate || l.nextFollowupDate,
-      } : l);
-      setActivities((prevA) => {
-        const nextA = [{ id: "A" + Date.now(), leadId, date: fmt(TODAY), ...act }, ...prevA];
-        setTasks((prevT) => {
-          const nextT = dueDate ? [{
-            id: "T" + Date.now(), leadId, companyName: lead ? lead.companyName : "",
-            assignedTo: lead ? lead.assignedTo : "", type: act.type, notes: act.notes,
-            dueDate, done: false, createdDate: fmt(TODAY),
-          }, ...prevT] : prevT;
-          persist(nextL, nextA, nextT, notes, quotes);
-          return nextT;
-        });
-        return nextA;
-      });
-      return nextL;
-    });
-  }, [persist, notes, quotes]);
+    const lead = leadsRef.current.find((l) => l.id === leadId);
+    const nextLeads = leadsRef.current.map((l) => l.id === leadId ? {
+      ...l, lastActivityDate: fmt(TODAY),
+      nextFollowupDate: dueDate || l.nextFollowupDate,
+    } : l);
+    const nextActivities = [{ id: "A" + Date.now(), leadId, date: fmt(TODAY), ...act }, ...activitiesRef.current];
+    const nextTasks = dueDate ? [{
+      id: "T" + Date.now(), leadId, companyName: lead ? lead.companyName : "",
+      assignedTo: lead ? lead.assignedTo : "", type: act.type, notes: act.notes,
+      dueDate, done: false, createdDate: fmt(TODAY),
+    }, ...tasksRef.current] : tasksRef.current;
+    leadsRef.current = nextLeads;
+    activitiesRef.current = nextActivities;
+    tasksRef.current = nextTasks;
+    setLeads(nextLeads);
+    setActivities(nextActivities);
+    setTasks(nextTasks);
+    persist();
+  }, [persist]);
 
   const toggleTaskDone = useCallback((taskId) => {
-    setTasks((prev) => {
-      const next = prev.map((t) => t.id === taskId ? { ...t, done: !t.done } : t);
-      persist(leads, activities, next, notes, quotes);
-      return next;
-    });
-  }, [leads, activities, notes, quotes, persist]);
+    const next = tasksRef.current.map((t) => t.id === taskId ? { ...t, done: !t.done } : t);
+    tasksRef.current = next;
+    setTasks(next);
+    persist();
+  }, [persist]);
 
   const addNote = useCallback((leadId, text) => {
-    setNotes((prev) => {
-      const next = [{ id: "N" + Date.now(), leadId, text, author: myRep || session?.user?.email || "Unknown", date: fmt(TODAY) }, ...prev];
-      persist(leads, activities, tasks, next, quotes);
-      return next;
-    });
-  }, [leads, activities, tasks, quotes, persist, myRep, session]);
+    const next = [{ id: "N" + Date.now(), leadId, text, author: myRep || session?.user?.email || "Unknown", date: fmt(TODAY) }, ...notesRef.current];
+    notesRef.current = next;
+    setNotes(next);
+    persist();
+  }, [persist, myRep, session]);
 
   const addQuote = useCallback((quote) => {
-    setQuotes((prev) => {
-      const next = [quote, ...prev];
-      persist(leads, activities, tasks, notes, next);
-      return next;
-    });
-  }, [leads, activities, tasks, notes, persist]);
+    const next = [quote, ...quotesRef.current];
+    quotesRef.current = next;
+    setQuotes(next);
+    persist();
+  }, [persist]);
 
   const updateQuote = useCallback((id, patch) => {
-    setQuotes((prev) => {
-      const next = prev.map((q) => q.id === id ? { ...q, ...patch } : q);
-      persist(leads, activities, tasks, notes, next);
-      return next;
-    });
-  }, [leads, activities, tasks, notes, persist]);
+    const next = quotesRef.current.map((q) => q.id === id ? { ...q, ...patch } : q);
+    quotesRef.current = next;
+    setQuotes(next);
+    persist();
+  }, [persist]);
 
   const selectedLead = useMemo(() => leads.find((l) => l.id === selectedLeadId) || null, [leads, selectedLeadId]);
 
@@ -1689,8 +1716,17 @@ function ReportsView({ leads }) {
   const PIE_COLORS = ["#39d639", "#60a5fa", "#f59e0b", "#a78bfa", "#f472b6", "#94a3b8", "#38bdf8", "#ef4444"];
 
   const open = filtered.filter(l => l.stage !== "Won – Active Customer" && l.stage !== "Lost");
-  const thisMonth = open.filter(l => l.expectedCloseDate && new Date(l.expectedCloseDate).getMonth() === TODAY.getMonth());
-  const nextMonth = open.filter(l => l.expectedCloseDate && new Date(l.expectedCloseDate).getMonth() === (TODAY.getMonth() + 1) % 12);
+  const thisMonth = open.filter(l => {
+    if (!l.expectedCloseDate) return false;
+    const closeDate = dateOnly(l.expectedCloseDate);
+    return closeDate.getMonth() === TODAY.getMonth() && closeDate.getFullYear() === TODAY.getFullYear();
+  });
+  const nextMonthDate = new Date(TODAY.getFullYear(), TODAY.getMonth() + 1, 1);
+  const nextMonth = open.filter(l => {
+    if (!l.expectedCloseDate) return false;
+    const closeDate = dateOnly(l.expectedCloseDate);
+    return closeDate.getMonth() === nextMonthDate.getMonth() && closeDate.getFullYear() === nextMonthDate.getFullYear();
+  });
   const nextQuarter = open.filter(l => l.expectedCloseDate && new Date(l.expectedCloseDate) > addDays(TODAY, 60) && new Date(l.expectedCloseDate) <= addDays(TODAY, 150));
   const forecastSum = (arr) => arr.reduce((s, l) => s + l.estMonthlyRevenue * (l.probability / 100), 0);
 

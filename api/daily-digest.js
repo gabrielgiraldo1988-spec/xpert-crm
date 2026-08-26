@@ -18,14 +18,24 @@ function fmt(d) {
   return d.toISOString().slice(0, 10);
 }
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[character]));
+}
+
 function buildHtml(repName, { overdue, dueToday, hotLeads, staleCount }) {
   const row = (t) => `<div style="padding:8px 12px;border-bottom:1px solid #e6e8eb;">
-      <div style="font-weight:600;color:#0f172a;">${t.companyName}</div>
-      <div style="font-size:12px;color:#64748b;">${t.type} · ${t.notes || ""}</div>
+      <div style="font-weight:600;color:#0f172a;">${escapeHtml(t.companyName)}</div>
+      <div style="font-size:12px;color:#64748b;">${escapeHtml(t.type)} · ${escapeHtml(t.notes)}</div>
     </div>`;
   const leadRow = (l) => `<div style="padding:8px 12px;border-bottom:1px solid #e6e8eb;">
-      <div style="font-weight:600;color:#0f172a;">${l.companyName}</div>
-      <div style="font-size:12px;color:#64748b;">${l.contactFirst} ${l.contactLast} · last activity ${l.lastActivityDate}</div>
+      <div style="font-weight:600;color:#0f172a;">${escapeHtml(l.companyName)}</div>
+      <div style="font-size:12px;color:#64748b;">${escapeHtml(l.contactFirst)} ${escapeHtml(l.contactLast)} · last activity ${escapeHtml(l.lastActivityDate)}</div>
     </div>`;
 
   return `
@@ -34,7 +44,7 @@ function buildHtml(repName, { overdue, dueToday, hotLeads, staleCount }) {
       <span style="color:#39d639;font-weight:800;font-size:16px;">XPERT FREIGHT</span>
     </div>
     <div style="border:1px solid #e6e8eb;border-top:none;border-radius:0 0 10px 10px;padding:20px;">
-      <h2 style="color:#0f172a;margin:0 0 4px;">Good morning, ${repName.split(" ")[0]}</h2>
+      <h2 style="color:#0f172a;margin:0 0 4px;">Good morning, ${escapeHtml(repName.split(" ")[0])}</h2>
       <p style="color:#64748b;font-size:13px;margin:0 0 16px;">Here's what needs your attention today.</p>
 
       <div style="margin-bottom:16px;">
@@ -61,15 +71,13 @@ function buildHtml(repName, { overdue, dueToday, hotLeads, staleCount }) {
 
 export default async function handler(req, res) {
   // Only Vercel's own cron scheduler (or someone with the secret) can trigger this.
-  // Accept the secret either as a header (how Vercel Cron sends it) or as
-  // ?secret=... in the URL (for easy manual testing from a browser).
+  // Fail closed when the deployment is missing its secret configuration.
+  const configuredSecret = process.env.CRON_SECRET;
+  if (!configuredSecret) {
+    return res.status(500).json({ error: "CRON_SECRET is not configured" });
+  }
   const auth = req.headers["authorization"];
-  const querySecret = req.query && req.query.secret;
-  const authorized =
-    !process.env.CRON_SECRET ||
-    auth === `Bearer ${process.env.CRON_SECRET}` ||
-    querySecret === process.env.CRON_SECRET;
-  if (!authorized) {
+  if (auth !== `Bearer ${configuredSecret}`) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
