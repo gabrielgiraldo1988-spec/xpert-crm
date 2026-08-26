@@ -9,6 +9,7 @@
 // directly in the webhook URL itself. Only someone who knows that URL
 // (i.e., you, via the Resend dashboard config) can trigger it.
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 
 // Keep this in sync with EMAIL_TO_REP in src/App.jsx.
 const EMAIL_TO_REP = {
@@ -98,7 +99,17 @@ export default async function handler(req, res) {
     const emailData = event.data || {};
     const fromAddress = (emailData.from || "").toLowerCase().match(/[\w.+-]+@[\w-]+\.[\w.-]+/)?.[0] || "";
     const subject = emailData.subject || "(no subject)";
-    const bodyText = emailData.text || emailData.html || "";
+
+    // The webhook payload only contains metadata — fetch the actual
+    // email body (text/html) separately using its email_id.
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    let bodyText = "";
+    try {
+      const fullEmail = await resend.emails.receiving.get(emailData.email_id);
+      bodyText = fullEmail?.data?.text || fullEmail?.data?.html || "";
+    } catch (fetchErr) {
+      console.error("Failed to fetch full email content:", fetchErr);
+    }
 
     const extracted = await extractQuoteDetails(bodyText, subject);
 
