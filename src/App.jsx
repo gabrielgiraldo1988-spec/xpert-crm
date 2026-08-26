@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import xpertLogo from "./assets/xpert-logo.png";
 import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, Phone, UserCheck,
   BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun, Loader2,
@@ -16,20 +17,20 @@ const THEMES = {
   light: {
     green: "#39d639", greenDark: "#22a022", greenTint: "#eafbea",
     charcoal: "#1c1c1c", charcoal2: "#272727",
-    ink: "#0f172a", slate: "#64748b", line: "#e6e8eb", bg: "#f6f7f5",
+    ink: "#0f172a", slate: "#64748b", line: "#e2e4e0", bg: "#f3f4f2",
     card: "#ffffff", cardHover: "#f9fafb",
     hot: "#ef4444", warm: "#f59e0b", cold: "#3b82f6", danger: "#ef4444",
     sidebarBg: "#ffffff", sidebarText: "#0f172a", sidebarTextMuted: "#64748b",
-    sidebarBorder: "#e6e8eb", sidebarActiveText: "#1c1c1c", sidebarHoverBg: "#f1f5f2",
+    sidebarBorder: "#e2e4e0", sidebarActiveText: "#39d639", sidebarHoverBg: "#f1f5f2",
   },
   dark: {
     green: "#39d639", greenDark: "#4ee84e", greenTint: "#16321a",
-    charcoal: "#0e0f0e", charcoal2: "#1a1b1a",
+    charcoal: "#0d0f0e", charcoal2: "#1a1b1a",
     ink: "#e9edf1", slate: "#94a3b8", line: "#2b2f33", bg: "#121314",
     card: "#1c1e1f", cardHover: "#232527",
     hot: "#f87171", warm: "#fbbf24", cold: "#60a5fa", danger: "#f87171",
     sidebarBg: "#0e0f0e", sidebarText: "#ffffff", sidebarTextMuted: "#8b8d94",
-    sidebarBorder: "#333333", sidebarActiveText: "#0e0f0e", sidebarHoverBg: "#1a1b1a",
+    sidebarBorder: "#333333", sidebarActiveText: "#39d639", sidebarHoverBg: "#1a1b1a",
   },
 };
 const C = { ...THEMES.light };
@@ -65,6 +66,11 @@ const PRIORITIES = ["Hot", "Warm", "Cold"];
 const PRIORITY_COLOR = { Hot: C.hot, Warm: C.warm, Cold: C.cold };
 const REPS = ["Felipe Velez", "Manuela Posada"];
 const EMAIL_TO_REP = { "fvelez@lgiinc.com": "Felipe Velez", "mposada@lgiinc.com": "Manuela Posada" };
+const EMAIL_TO_ROLE = {
+  "fvelez@lgiinc.com": "sales",
+  "mposada@lgiinc.com": "sales",
+  "xpertops@lgiinc.com": "ops",
+};
 const QUICK_TEMPLATES = [
   "Sent quote, awaiting response.",
   "Left voicemail, will retry.",
@@ -296,7 +302,7 @@ function KpiCard({ label, value, icon: Icon, sub, accent }) {
         <span className="text-xs font-medium uppercase tracking-wide" style={{ color: C.slate }}>{label}</span>
         <Icon size={16} style={{ color: accent || C.green }} />
       </div>
-      <div className="text-2xl font-bold" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>{value}</div>
+      <div className="text-2xl font-medium kpi-number" style={{ color: C.ink }}>{value}</div>
       {sub && <div className="text-xs" style={{ color: C.slate }}>{sub}</div>}
     </div>
   );
@@ -341,10 +347,7 @@ function LoginScreen({ onLoggedIn }) {
     <div className="h-screen w-full flex items-center justify-center" style={{ background: C.charcoal }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
       <form onSubmit={submit} className="bg-white rounded-xl p-8 w-full max-w-sm flex flex-col gap-4" style={{ fontFamily: "'Inter', sans-serif" }}>
-        <div className="flex items-center gap-2 mb-2">
-          <div style={{ width: 10, height: 22, background: C.green, borderRadius: 3 }} />
-          <div className="font-extrabold text-[15px] leading-tight" style={{ color: C.charcoal }}>XPERT<br /><span style={{ color: C.greenDark }}>FREIGHT</span></div>
-        </div>
+        <img src={xpertLogo} alt="Xpert Freight" className="w-48 h-auto object-contain self-start mb-2" />
         <div>
           <FieldLabel>Correo</FieldLabel>
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
@@ -399,7 +402,8 @@ function CRMApp({ session }) {
   const persistQueueRef = useRef(Promise.resolve());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [view, setView] = useState(() => EMAIL_TO_REP[session?.user?.email] ? "myday" : "dashboard");
+  const role = EMAIL_TO_ROLE[session?.user?.email] || null;
+  const [view, setView] = useState(() => role === "ops" ? "pending-quotes" : EMAIL_TO_REP[session?.user?.email] ? "myday" : "dashboard");
   const [search, setSearch] = useState("");
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [showNewLead, setShowNewLead] = useState(false);
@@ -410,6 +414,9 @@ function CRMApp({ session }) {
   const [calendarRep, setCalendarRep] = useState("All");
   const myRep = EMAIL_TO_REP[session?.user?.email] || null;
   const [defaultsApplied, setDefaultsApplied] = useState(false);
+  useEffect(() => {
+    if (role === "ops" && view !== "pending-quotes" && view !== "quotes") setView("pending-quotes");
+  }, [role, view]);
   useEffect(() => {
     if (myRep && !defaultsApplied) {
       setLeadFilters((prev) => ({ ...prev, rep: myRep }));
@@ -645,7 +652,8 @@ function CRMApp({ session }) {
   const overdueCount = scopeOpenTasks.filter(t => t.dueDate < todayStr).length;
   const customersCount = scopeLeads.filter(l => l.stage === "Won – Active Customer").length;
 
-  const NAV = [
+  const allNav = [
+    { key: "pending-quotes", label: "Pending Quotes", icon: AlertTriangle, badge: quotes.filter(q => q.status === "Pending Review").length },
     { key: "myday", label: "My Day", icon: Sun },
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "leads", label: "Leads", icon: Users },
@@ -657,11 +665,13 @@ function CRMApp({ session }) {
     { key: "reports", label: "Reports", icon: BarChart3 },
     { key: "team", label: "Sales Team", icon: UsersRound },
   ];
+  const NAV = role === "ops" ? allNav.filter((item) => item.key === "pending-quotes" || item.key === "quotes") : allNav;
 
   return (
     <div data-theme={theme} className="flex h-screen w-full overflow-hidden" style={{ background: C.bg, fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+        .kpi-number { font-family: 'JetBrains Mono', monospace !important; font-weight: 500; }
         [data-theme="dark"] .bg-white { background-color: ${THEMES.dark.card} !important; }
         [data-theme="dark"] .hover\\:bg-gray-50:hover { background-color: ${THEMES.dark.cardHover} !important; }
         [data-theme="dark"] .hover\\:bg-gray-100:hover { background-color: ${THEMES.dark.cardHover} !important; }
@@ -674,10 +684,7 @@ function CRMApp({ session }) {
       {/* SIDEBAR */}
       <div className="flex flex-col shrink-0 border-r" style={{ width: 220, background: C.sidebarBg, borderColor: C.sidebarBorder }}>
         <div className="px-5 py-5 flex items-center justify-between gap-2 border-b" style={{ borderColor: C.sidebarBorder }}>
-          <div className="flex items-center gap-2">
-            <div style={{ width: 10, height: 22, background: C.green, borderRadius: 3 }} />
-            <div className="font-extrabold text-[15px] leading-tight" style={{ color: C.sidebarText }}>XPERT<br /><span style={{ color: C.green }}>FREIGHT</span></div>
-          </div>
+          <img src={xpertLogo} alt="Xpert Freight" className="w-40 h-auto object-contain" />
           <button onClick={toggleTheme} title={theme === "light" ? "Modo oscuro" : "Modo claro"}
             className="p-1.5 rounded-lg shrink-0" style={{ background: C.sidebarHoverBg, color: C.greenDark }}>
             {theme === "light" ? <Moon size={14} /> : <Sun size={14} />}
@@ -689,7 +696,7 @@ function CRMApp({ session }) {
             return (
               <button key={n.key} onClick={() => setView(n.key)}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                style={{ background: active ? C.green : "transparent", color: active ? C.sidebarActiveText : C.sidebarTextMuted }}>
+                style={{ background: active ? C.green + "1a" : "transparent", color: active ? C.greenDark : C.sidebarTextMuted, borderLeft: active ? `3px solid ${C.green}` : "3px solid transparent" }}>
                 <n.icon size={16} />
                 <span className="flex-1 text-left">{n.label}</span>
                 {n.badge > 0 && (
@@ -730,20 +737,20 @@ function CRMApp({ session }) {
         </div>
 
         <div className="px-6 py-2.5 flex items-center gap-6 shrink-0 flex-wrap bg-white border-b" style={{ borderColor: C.line }}>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-base font-extrabold" style={{ color: C.ink }}>{inProgressCount}</span>
+          <div className="flex items-baseline gap-1.5 border-l pl-4" style={{ borderColor: C.line }}>
+            <span className="text-base font-medium kpi-number" style={{ color: C.ink }}>{inProgressCount}</span>
             <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.slate }}>In Progress</span>
           </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-base font-extrabold" style={{ color: dueTodayCount > 0 ? C.greenDark : C.ink }}>{dueTodayCount}</span>
+          <div className="flex items-baseline gap-1.5 border-l pl-4" style={{ borderColor: C.line }}>
+            <span className="text-base font-medium kpi-number" style={{ color: dueTodayCount > 0 ? C.greenDark : C.ink }}>{dueTodayCount}</span>
             <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.slate }}>Due Today</span>
           </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-base font-extrabold" style={{ color: overdueCount > 0 ? C.danger : C.ink }}>{overdueCount}</span>
+          <div className="flex items-baseline gap-1.5 border-l pl-4" style={{ borderColor: C.line }}>
+            <span className="text-base font-medium kpi-number" style={{ color: overdueCount > 0 ? C.danger : C.ink }}>{overdueCount}</span>
             <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.slate }}>Overdue</span>
           </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-base font-extrabold" style={{ color: C.ink }}>{customersCount}</span>
+          <div className="flex items-baseline gap-1.5 border-l pl-4" style={{ borderColor: C.line }}>
+            <span className="text-base font-medium kpi-number" style={{ color: C.ink }}>{customersCount}</span>
             <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.slate }}>Customers</span>
           </div>
           {myRep && <span className="text-[11px] ml-auto" style={{ color: C.slate }}>Showing: <strong style={{ color: C.ink }}>{myRep}</strong></span>}
@@ -755,6 +762,7 @@ function CRMApp({ session }) {
 
         <div className="flex-1 overflow-y-auto p-6">
           {view === "myday" && <MyDayView leads={leads} tasks={tasks} activities={activities} myRep={myRep} setSelectedLeadId={setSelectedLeadId} setView={setView} />}
+          {view === "pending-quotes" && <PendingQuotesDashboard quotes={quotes} updateQuote={updateQuote} deleteQuote={deleteQuote} setSelectedLeadId={setSelectedLeadId} />}
           {view === "dashboard" && <Dashboard leads={leads} activities={activities} setView={setView} setSelectedLeadId={setSelectedLeadId} />}
           {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} addLeadsBulk={addLeadsBulk} />}
           {view === "pipeline" && <PipelineView leads={leads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} repFilter={pipelineRep} setRepFilter={setPipelineRep} />}
@@ -822,6 +830,70 @@ function QuoteReviewBanner({ quotes, myRep, setView }) {
       <button onClick={() => setView("quotes")} className="text-xs font-semibold underline" style={{ color: C.warm }}>
         Review Quotes
       </button>
+    </div>
+  );
+}
+
+function PendingQuotesDashboard({ quotes, updateQuote, deleteQuote, setSelectedLeadId }) {
+  const [now, setNow] = useState(() => Date.now());
+  const [viewingQuoteId, setViewingQuoteId] = useState(null);
+  const viewingQuote = quotes.find((q) => q.id === viewingQuoteId) || null;
+  const pendingQuotes = quotes
+    .filter((q) => q.status === "Pending Review")
+    .sort((a, b) => new Date(a.createdAt || a.createdDate) - new Date(b.createdAt || b.createdDate));
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const elapsedLabel = (quote) => {
+    const createdAt = new Date(quote.createdAt || quote.createdDate).getTime();
+    const minutes = Math.max(0, Math.floor((now - createdAt) / 60000));
+    if (minutes < 60) return `${minutes} min`;
+    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  };
+
+  const elapsedStyle = (quote) => {
+    const createdAt = new Date(quote.createdAt || quote.createdDate).getTime();
+    const minutes = Math.max(0, Math.floor((now - createdAt) / 60000));
+    if (minutes <= 30) return { background: C.greenTint, color: C.greenDark };
+    if (minutes <= 60) return { background: C.warm + "1a", color: C.warm };
+    return { background: C.danger + "1a", color: C.danger };
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h1 className="text-xl font-bold" style={{ color: C.ink }}>Pending Quotes</h1>
+        <p className="text-sm" style={{ color: C.slate }}>Review incoming quote requests and confirm a rate.</p>
+      </div>
+      {pendingQuotes.length === 0 ? (
+        <div className="bg-white rounded-xl border p-8 text-center text-sm" style={{ borderColor: C.line, color: C.slate }}>No quotes pending review.</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {pendingQuotes.map((quote) => {
+            const style = elapsedStyle(quote);
+            const isUrgent = style.color === C.danger;
+            return (
+              <div key={quote.id} onClick={() => setViewingQuoteId(quote.id)} className="bg-white rounded-xl border p-4 cursor-pointer hover:shadow-md transition" style={{ borderColor: C.line }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-bold truncate" style={{ color: C.ink }}>{quote.companyName}</div>
+                    <div className="text-sm mt-1" style={{ color: C.slate }}>{quote.origin || "Origin missing"} → {quote.destination || "Destination missing"}</div>
+                    <div className="text-xs mt-1" style={{ color: C.slate }}>{quote.equipment}</div>
+                  </div>
+                  <div className="flex items-center gap-1 text-sm font-bold rounded-lg px-2 py-1 shrink-0" style={style}>
+                    {isUrgent && <AlertTriangle size={14} />}
+                    {elapsedLabel(quote)}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {viewingQuote && <QuoteDetailModal quote={viewingQuote} onClose={() => setViewingQuoteId(null)} updateQuote={updateQuote} deleteQuote={deleteQuote} setSelectedLeadId={setSelectedLeadId} />}
     </div>
   );
 }
@@ -1668,7 +1740,7 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
       origin: f.origin, destination: f.destination, equipment: f.equipment,
       commodity: f.commodity, weight: f.weight, pickupDate: f.pickupDate,
       rate, notes: f.notes, status: "Sent",
-      createdBy: myRep || "Team", createdDate: fmt(TODAY),
+      createdBy: myRep || "Team", createdDate: fmt(TODAY), createdAt: new Date().toISOString(),
     };
     onCreate(quote);
     if (quote.leadId) {

@@ -156,6 +156,7 @@ export default async function handler(req, res) {
       status: "Pending Review",
       createdBy: createdBy || "Unassigned",
       createdDate: fmt(new Date()),
+      createdAt: new Date().toISOString(),
     };
 
     const nextQuotes = [newQuote, ...(parsed.quotes || [])];
