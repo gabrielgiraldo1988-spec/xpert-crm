@@ -1326,6 +1326,10 @@ function computeSuggestedRate(quotes, origin, destination, equipment) {
 }
 
 function buildQuoteText(q) {
+  const rateText = q.rateMin != null && q.rateMax != null
+    ? `$${q.rateMin.toLocaleString()} – $${q.rateMax.toLocaleString()}`
+    : "[pending confirmation]";
+
   return `Hi ${q.contactName || "there"},
 
 Thank you for reaching out to Xpert Freight. Here's our quote for your shipment:
@@ -1334,7 +1338,7 @@ Lane: ${q.origin} → ${q.destination}
 Equipment: ${q.equipment}
 ${q.commodity ? `Commodity: ${q.commodity}\n` : ""}${q.weight ? `Weight: ${q.weight}\n` : ""}Pickup: ${q.pickupDate || "TBD"}
 
-Rate: $${q.rateMin?.toLocaleString()} – $${q.rateMax?.toLocaleString()}
+Rate: ${rateText}
 
 ${q.notes ? q.notes + "\n\n" : ""}Let us know if you'd like to move forward or if you have any questions — happy to help.
 
