@@ -1748,8 +1748,8 @@ function Kv({ k, v }) {
 function NewLeadModal({ onClose, onCreate }) {
   const [f, setF] = useState({
     companyName: "", industry: "Logistics Company", city: "", state: "", contactFirst: "", contactLast: "",
-    jobTitle: "Operations Manager", email: "", phone: "", source: "Cold Call", priority: "Warm",
-    assignedTo: "Felipe Velez", estMonthlyRevenue: 0, services: [],
+    jobTitle: "Operations Manager", email: "", phone: "", website: "", companyLinkedin: "",
+    source: "Cold Call", priority: "Warm", assignedTo: "Felipe Velez", estMonthlyRevenue: 0, services: [],
   });
   const toggleService = (s) => setF(p => ({ ...p, services: p.services.includes(s) ? p.services.filter(x => x !== s) : [...p.services, s] }));
   const set = (k) => (e) => setF(p => ({ ...p, [k]: e.target.value }));
@@ -1759,7 +1759,7 @@ function NewLeadModal({ onClose, onCreate }) {
     const score = Math.min(100, Math.round((f.priority === "Hot" ? 40 : f.priority === "Warm" ? 22 : 8) + rint(10, 30)));
     onCreate({
       id: "L" + Date.now(), companyName: f.companyName, legalName: f.companyName, industry: f.industry,
-      companySize: "11-50", trucks: rint(3, 60), employees: rint(10, 150), website: "", companyLinkedin: "", city: f.city, state: f.state,
+      companySize: "11-50", trucks: rint(3, 60), employees: rint(10, 150), website: f.website, companyLinkedin: f.companyLinkedin, city: f.city, state: f.state,
       timeZone: "CT", contactFirst: f.contactFirst, contactLast: f.contactLast, jobTitle: f.jobTitle,
       department: "Operations", email: f.email, phone: f.phone, mobile: f.phone, linkedin: "",
       source: f.source, priority: f.priority, score, stage: "New Lead", assignedTo: f.assignedTo,
@@ -1784,6 +1784,8 @@ function NewLeadModal({ onClose, onCreate }) {
         <div className="grid grid-cols-2 gap-3">
           <div><FieldLabel>Company Name *</FieldLabel><input value={f.companyName} onChange={set("companyName")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>Industry</FieldLabel><input value={f.industry} onChange={set("industry")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Website</FieldLabel><input value={f.website} onChange={set("website")} placeholder="www.company.com" className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>LinkedIn Company Page</FieldLabel><input value={f.companyLinkedin} onChange={set("companyLinkedin")} placeholder="linkedin.com/company/..." className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>City</FieldLabel><input value={f.city} onChange={set("city")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>State</FieldLabel><input value={f.state} onChange={set("state")} maxLength={2} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>First Name *</FieldLabel><input value={f.contactFirst} onChange={set("contactFirst")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
