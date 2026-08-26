@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, Phone, UserCheck,
-  BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun,
+  BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun, Loader2,
   Mail, MapPin, Building2, TrendingUp, TrendingDown, Clock, CheckCircle2,
   AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon, Link2, Globe, FileText, Copy
 } from "lucide-react";
@@ -1455,7 +1455,30 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
     origin: "", destination: "", equipment: "Dry Van", commodity: "", weight: "",
     pickupDate: fmt(addDays(TODAY, 1)), rateMin: "", rateMax: "", notes: "",
   });
+  const [zipLoading, setZipLoading] = useState({ origin: false, destination: false });
   const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+
+  const lookupZip = async (field) => {
+    const zip = f[field].trim();
+    if (!/^\d{5}$/.test(zip)) return;
+    setZipLoading((p) => ({ ...p, [field]: true }));
+    try {
+      const response = await fetch(`https://api.zippopotam.us/us/${zip}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      const place = data.places?.[0];
+      const city = place?.["place name"];
+      const state = place?.["state abbreviation"];
+      if (!city || !state) return;
+      setF((current) => current[field].trim() === zip
+        ? { ...current, [field]: `${city}, ${state}` }
+        : current);
+    } catch {
+      // ZIP lookup is optional; leave the user's value unchanged on failure.
+    } finally {
+      setZipLoading((p) => ({ ...p, [field]: false }));
+    }
+  };
 
   const matchingLeads = leadSearch.trim()
     ? leads.filter((l) => l.companyName.toLowerCase().includes(leadSearch.trim().toLowerCase())).slice(0, 8)
@@ -1475,17 +1498,17 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
     if (suggestion) setF((p) => ({ ...p, rateMin: String(suggestion.avgMin), rateMax: String(suggestion.avgMax) }));
   };
 
-  const checkRateOnTriumph = () => {
+  const triumphUrl = (() => {
     const normalizeLocation = (value) => value.trim().replace(/,/g, " ").replace(/\s+/g, " ");
     const equipment = { "Dry Van": "VAN", Reefer: "REEFER", Flatbed: "FLATBED", Multiple: "VAN" }[f.equipment] || "VAN";
-    const params = new URLSearchParams({
-      originCityState: normalizeLocation(f.origin),
-      destinationCityState: normalizeLocation(f.destination),
-      transportType: equipment,
-    });
-    if (f.pickupDate) params.set("pickupDate", f.pickupDate);
-    window.open(`https://intelligence.triumph.io/rates?${params.toString()}`, "_blank", "noopener,noreferrer");
-  };
+    const params = [
+      ["originCityState", normalizeLocation(f.origin)],
+      ["destinationCityState", normalizeLocation(f.destination)],
+      ["transportType", equipment],
+    ];
+    if (f.pickupDate) params.push(["pickupDate", f.pickupDate]);
+    return `https://intelligence.triumph.io/rates?${params.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&")}`;
+  })();
 
   const submit = () => {
     if (!f.companyName || !f.origin || !f.destination || !f.rateMin || !f.rateMax) return;
@@ -1552,8 +1575,8 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
         )}
 
         <div className="grid grid-cols-2 gap-2">
-          <div><FieldLabel>Origin *</FieldLabel><input value={f.origin} onChange={set("origin")} placeholder="Dallas, TX" className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
-          <div><FieldLabel>Destination *</FieldLabel><input value={f.destination} onChange={set("destination")} placeholder="Atlanta, GA" className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Origin *</FieldLabel><div className="relative"><input value={f.origin} onChange={set("origin")} onBlur={() => lookupZip("origin")} placeholder="e.g. Dallas, TX" className="w-full border rounded-lg px-2 py-1.5 pr-20 text-sm" style={{ borderColor: C.line }} />{zipLoading.origin && <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[10px]" style={{ color: C.slate }}><Loader2 size={12} className="animate-spin" />Looking up...</span>}</div></div>
+          <div><FieldLabel>Destination *</FieldLabel><div className="relative"><input value={f.destination} onChange={set("destination")} onBlur={() => lookupZip("destination")} placeholder="e.g. Atlanta, GA" className="w-full border rounded-lg px-2 py-1.5 pr-20 text-sm" style={{ borderColor: C.line }} />{zipLoading.destination && <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[10px]" style={{ color: C.slate }}><Loader2 size={12} className="animate-spin" />Looking up...</span>}</div></div>
           <div><FieldLabel>Equipment</FieldLabel>
             <select value={f.equipment} onChange={set("equipment")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>
               {EQUIPMENT_OPTIONS.map((eq) => <option key={eq}>{eq}</option>)}
@@ -1574,11 +1597,12 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
           <div className="text-xs" style={{ color: C.slate }}>No hay historial todavía para esta ruta — ingresa la tarifa manualmente.</div>
         )}
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={checkRateOnTriumph} disabled={!f.origin.trim() || !f.destination.trim()}
+          <a href={triumphUrl} target="_blank" rel="noopener noreferrer" aria-disabled={!f.origin.trim() || !f.destination.trim()}
+            onClick={(e) => { if (!f.origin.trim() || !f.destination.trim()) e.preventDefault(); }}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
             style={{ borderColor: C.line, color: C.ink, opacity: !f.origin.trim() || !f.destination.trim() ? 0.5 : 1 }}>
             Check Rate on Triumph
-          </button>
+          </a>
           <button type="button" onClick={() => window.open("https://www.dat.com/iq", "_blank", "noopener,noreferrer")}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
             style={{ borderColor: C.line, color: C.ink }}>
