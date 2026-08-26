@@ -1573,11 +1573,23 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
         {f.origin && f.destination && !suggestion && (
           <div className="text-xs" style={{ color: C.slate }}>No hay historial todavía para esta ruta — ingresa la tarifa manualmente.</div>
         )}
-        <button type="button" onClick={checkRateOnTriumph} disabled={!f.origin.trim() || !f.destination.trim()}
-          className="self-start px-3 py-1.5 rounded-lg text-xs font-semibold border"
-          style={{ borderColor: C.line, color: C.ink, opacity: !f.origin.trim() || !f.destination.trim() ? 0.5 : 1 }}>
-          Check Rate on Triumph
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={checkRateOnTriumph} disabled={!f.origin.trim() || !f.destination.trim()}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
+            style={{ borderColor: C.line, color: C.ink, opacity: !f.origin.trim() || !f.destination.trim() ? 0.5 : 1 }}>
+            Check Rate on Triumph
+          </button>
+          <button type="button" onClick={() => window.open("https://www.dat.com/iq", "_blank", "noopener,noreferrer")}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
+            style={{ borderColor: C.line, color: C.ink }}>
+            Open DAT RateView
+          </button>
+          <button type="button" onClick={() => window.open("https://truckstop.com/product/rate-insights/", "_blank", "noopener,noreferrer")}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
+            style={{ borderColor: C.line, color: C.ink }}>
+            Open Truckstop Rate Insights
+          </button>
+        </div>
 
         <div className="grid grid-cols-2 gap-2">
           <div><FieldLabel>Rate Min *</FieldLabel><input type="number" value={f.rateMin} onChange={set("rateMin")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
