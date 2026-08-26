@@ -575,6 +575,13 @@ function CRMApp({ session }) {
     persist();
   }, [persist]);
 
+  const deleteQuote = useCallback((id) => {
+    const next = quotesRef.current.filter((q) => q.id !== id);
+    quotesRef.current = next;
+    setQuotes(next);
+    persist();
+  }, [persist]);
+
   const selectedLead = useMemo(() => leads.find((l) => l.id === selectedLeadId) || null, [leads, selectedLeadId]);
 
   if (loading) {
@@ -700,7 +707,7 @@ function CRMApp({ session }) {
           {view === "dashboard" && <Dashboard leads={leads} activities={activities} setView={setView} setSelectedLeadId={setSelectedLeadId} />}
           {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} addLeadsBulk={addLeadsBulk} />}
           {view === "pipeline" && <PipelineView leads={leads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} repFilter={pipelineRep} setRepFilter={setPipelineRep} />}
-          {view === "quotes" && <QuotesView leads={leads} quotes={quotes} addQuote={addQuote} updateQuote={updateQuote} logActivity={logActivity} myRep={myRep} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "quotes" && <QuotesView leads={leads} quotes={quotes} addQuote={addQuote} updateQuote={updateQuote} deleteQuote={deleteQuote} logActivity={logActivity} myRep={myRep} setSelectedLeadId={setSelectedLeadId} />}
           {view === "activities" && <ActivitiesView leads={leads} activities={activities} logActivity={logActivity} setSelectedLeadId={setSelectedLeadId} repFilter={activityRep} setRepFilter={setActivityRep} />}
           {view === "calendar" && <CalendarView tasks={tasks} toggleTaskDone={toggleTaskDone} setSelectedLeadId={setSelectedLeadId} repFilter={calendarRep} setRepFilter={setCalendarRep} />}
           {view === "customers" && <CustomersView leads={leads} setSelectedLeadId={setSelectedLeadId} />}
@@ -1316,7 +1323,7 @@ ${q.createdBy || "Xpert Freight"}
 Xpert Freight`;
 }
 
-function QuotesView({ leads, quotes, addQuote, updateQuote, logActivity, myRep, setSelectedLeadId }) {
+function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActivity, myRep, setSelectedLeadId }) {
   const [showNew, setShowNew] = useState(false);
   const [viewingQuote, setViewingQuote] = useState(null);
   const scoped = myRep ? quotes.filter((q) => q.createdBy === myRep) : quotes;
@@ -1366,13 +1373,13 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, logActivity, myRep, 
           onCreate={(q) => { addQuote(q); setShowNew(false); setViewingQuote(q); }} logActivity={logActivity} />
       )}
       {viewingQuote && (
-        <QuoteDetailModal quote={viewingQuote} onClose={() => setViewingQuote(null)} updateQuote={updateQuote} setSelectedLeadId={setSelectedLeadId} />
+        <QuoteDetailModal quote={viewingQuote} onClose={() => setViewingQuote(null)} updateQuote={updateQuote} deleteQuote={deleteQuote} setSelectedLeadId={setSelectedLeadId} />
       )}
     </div>
   );
 }
 
-function QuoteDetailModal({ quote, onClose, updateQuote, setSelectedLeadId }) {
+function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelectedLeadId }) {
   const [copied, setCopied] = useState(false);
   const text = buildQuoteText(quote);
   const mailtoHref = `mailto:${quote.contactEmail || ""}?subject=${encodeURIComponent("Quote — " + quote.origin + " to " + quote.destination)}&body=${encodeURIComponent(text)}`;
@@ -1425,6 +1432,15 @@ function QuoteDetailModal({ quote, onClose, updateQuote, setSelectedLeadId }) {
             <Mail size={14} />Open in Email
           </a>
         </div>
+
+        <button onClick={() => {
+          if (confirm("Delete this quote? This can't be undone.")) {
+            deleteQuote(quote.id);
+            onClose();
+          }
+        }} className="flex items-center gap-1.5 text-sm font-medium self-start" style={{ color: C.danger }}>
+          <Trash2 size={14} /> Delete Quote
+        </button>
       </div>
     </Modal>
   );
@@ -1457,6 +1473,18 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
 
   const applySuggestion = () => {
     if (suggestion) setF((p) => ({ ...p, rateMin: String(suggestion.avgMin), rateMax: String(suggestion.avgMax) }));
+  };
+
+  const checkRateOnTriumph = () => {
+    const normalizeLocation = (value) => value.trim().replace(/,/g, " ").replace(/\s+/g, " ");
+    const equipment = { "Dry Van": "VAN", Reefer: "REEFER", Flatbed: "FLATBED", Multiple: "VAN" }[f.equipment] || "VAN";
+    const params = new URLSearchParams({
+      originCityState: normalizeLocation(f.origin),
+      destinationCityState: normalizeLocation(f.destination),
+      transportType: equipment,
+    });
+    if (f.pickupDate) params.set("pickupDate", f.pickupDate);
+    window.open(`https://intelligence.triumph.io/rates?${params.toString()}`, "_blank", "noopener,noreferrer");
   };
 
   const submit = () => {
@@ -1545,6 +1573,11 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
         {f.origin && f.destination && !suggestion && (
           <div className="text-xs" style={{ color: C.slate }}>No hay historial todavía para esta ruta — ingresa la tarifa manualmente.</div>
         )}
+        <button type="button" onClick={checkRateOnTriumph} disabled={!f.origin.trim() || !f.destination.trim()}
+          className="self-start px-3 py-1.5 rounded-lg text-xs font-semibold border"
+          style={{ borderColor: C.line, color: C.ink, opacity: !f.origin.trim() || !f.destination.trim() ? 0.5 : 1 }}>
+          Check Rate on Triumph
+        </button>
 
         <div className="grid grid-cols-2 gap-2">
           <div><FieldLabel>Rate Min *</FieldLabel><input type="number" value={f.rateMin} onChange={set("rateMin")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
