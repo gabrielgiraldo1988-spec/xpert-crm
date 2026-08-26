@@ -4,6 +4,16 @@
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
+// Critical: tell Vercel NOT to pre-parse the request body. Signature
+// verification needs the exact raw bytes Resend sent — if Vercel parses
+// and reconstructs the body first, the bytes won't match and every
+// signature check will fail with 401, even for legitimate requests.
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 // Keep this in sync with EMAIL_TO_REP in src/App.jsx.
 const EMAIL_TO_REP = {
   "fvelez@lgiinc.com": "Felipe Velez",
