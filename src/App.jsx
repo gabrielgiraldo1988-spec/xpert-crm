@@ -19,6 +19,8 @@ const THEMES = {
     ink: "#0f172a", slate: "#64748b", line: "#e6e8eb", bg: "#f6f7f5",
     card: "#ffffff", cardHover: "#f9fafb",
     hot: "#ef4444", warm: "#f59e0b", cold: "#3b82f6", danger: "#ef4444",
+    sidebarBg: "#ffffff", sidebarText: "#0f172a", sidebarTextMuted: "#64748b",
+    sidebarBorder: "#e6e8eb", sidebarActiveText: "#1c1c1c", sidebarHoverBg: "#f1f5f2",
   },
   dark: {
     green: "#39d639", greenDark: "#4ee84e", greenTint: "#16321a",
@@ -26,6 +28,8 @@ const THEMES = {
     ink: "#e9edf1", slate: "#94a3b8", line: "#2b2f33", bg: "#121314",
     card: "#1c1e1f", cardHover: "#232527",
     hot: "#f87171", warm: "#fbbf24", cold: "#60a5fa", danger: "#f87171",
+    sidebarBg: "#0e0f0e", sidebarText: "#ffffff", sidebarTextMuted: "#8b8d94",
+    sidebarBorder: "#333333", sidebarActiveText: "#0e0f0e", sidebarHoverBg: "#1a1b1a",
   },
 };
 const C = { ...THEMES.light };
@@ -369,6 +373,7 @@ function CRMApp({ session }) {
   const [leads, setLeads] = useState([]);
   const [activities, setActivities] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState(() => EMAIL_TO_REP[session?.user?.email] ? "myday" : "dashboard");
   const [search, setSearch] = useState("");
@@ -426,6 +431,7 @@ function CRMApp({ session }) {
           setLeads(parsed.leads || []);
           setActivities(parsed.activities || []);
           setTasks(parsed.tasks || []);
+          setNotes(parsed.notes || []);
           setLoading(false);
           return;
         }
@@ -435,51 +441,52 @@ function CRMApp({ session }) {
       setLeads(seedLeads);
       setActivities(seedActivities);
       setTasks([]);
+      setNotes([]);
       setLoading(false);
       try {
-        await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities, tasks: [] }) });
+        await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities, tasks: [], notes: [] }) });
       } catch (e) { /* storage best-effort */ }
     })();
   }, []);
 
-  const persist = useCallback(async (nextLeads, nextActivities, nextTasks) => {
+  const persist = useCallback(async (nextLeads, nextActivities, nextTasks, nextNotes) => {
     try {
-      await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: nextLeads, activities: nextActivities, tasks: nextTasks }) });
+      await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: nextLeads, activities: nextActivities, tasks: nextTasks, notes: nextNotes }) });
     } catch (e) { /* best-effort */ }
   }, []);
 
   const updateLead = useCallback((id, patch) => {
     setLeads((prev) => {
       const next = prev.map((l) => (l.id === id ? { ...l, ...patch } : l));
-      persist(next, activities, tasks);
+      persist(next, activities, tasks, notes);
       return next;
     });
-  }, [activities, tasks, persist]);
+  }, [activities, tasks, notes, persist]);
 
   const deleteLead = useCallback((id) => {
     setLeads((prev) => {
       const next = prev.filter((l) => l.id !== id);
-      persist(next, activities, tasks);
+      persist(next, activities, tasks, notes);
       return next;
     });
     setSelectedLeadId(null);
-  }, [activities, tasks, persist]);
+  }, [activities, tasks, notes, persist]);
 
   const addLead = useCallback((lead) => {
     setLeads((prev) => {
       const next = [lead, ...prev];
-      persist(next, activities, tasks);
+      persist(next, activities, tasks, notes);
       return next;
     });
-  }, [activities, tasks, persist]);
+  }, [activities, tasks, notes, persist]);
 
   const addLeadsBulk = useCallback((newLeads) => {
     setLeads((prev) => {
       const next = [...newLeads, ...prev];
-      persist(next, activities, tasks);
+      persist(next, activities, tasks, notes);
       return next;
     });
-  }, [activities, tasks, persist]);
+  }, [activities, tasks, notes, persist]);
 
   const logActivity = useCallback((leadId, act, dueDate) => {
     setLeads((prevL) => {
@@ -496,22 +503,30 @@ function CRMApp({ session }) {
             assignedTo: lead ? lead.assignedTo : "", type: act.type, notes: act.notes,
             dueDate, done: false, createdDate: fmt(TODAY),
           }, ...prevT] : prevT;
-          persist(nextL, nextA, nextT);
+          persist(nextL, nextA, nextT, notes);
           return nextT;
         });
         return nextA;
       });
       return nextL;
     });
-  }, [persist]);
+  }, [persist, notes]);
 
   const toggleTaskDone = useCallback((taskId) => {
     setTasks((prev) => {
       const next = prev.map((t) => t.id === taskId ? { ...t, done: !t.done } : t);
-      persist(leads, activities, next);
+      persist(leads, activities, next, notes);
       return next;
     });
-  }, [leads, activities, persist]);
+  }, [leads, activities, notes, persist]);
+
+  const addNote = useCallback((leadId, text) => {
+    setNotes((prev) => {
+      const next = [{ id: "N" + Date.now(), leadId, text, author: myRep || session?.user?.email || "Unknown", date: fmt(TODAY) }, ...prev];
+      persist(leads, activities, tasks, next);
+      return next;
+    });
+  }, [leads, activities, tasks, persist, myRep, session]);
 
   const selectedLead = useMemo(() => leads.find((l) => l.id === selectedLeadId) || null, [leads, selectedLeadId]);
 
@@ -553,14 +568,14 @@ function CRMApp({ session }) {
       `}</style>
 
       {/* SIDEBAR */}
-      <div className="flex flex-col shrink-0" style={{ width: 220, background: C.charcoal }}>
-        <div className="px-5 py-5 flex items-center justify-between gap-2 border-b" style={{ borderColor: "#333" }}>
+      <div className="flex flex-col shrink-0 border-r" style={{ width: 220, background: C.sidebarBg, borderColor: C.sidebarBorder }}>
+        <div className="px-5 py-5 flex items-center justify-between gap-2 border-b" style={{ borderColor: C.sidebarBorder }}>
           <div className="flex items-center gap-2">
             <div style={{ width: 10, height: 22, background: C.green, borderRadius: 3 }} />
-            <div className="text-white font-extrabold text-[15px] leading-tight">XPERT<br /><span style={{ color: C.green }}>FREIGHT</span></div>
+            <div className="font-extrabold text-[15px] leading-tight" style={{ color: C.sidebarText }}>XPERT<br /><span style={{ color: C.green }}>FREIGHT</span></div>
           </div>
           <button onClick={toggleTheme} title={theme === "light" ? "Modo oscuro" : "Modo claro"}
-            className="p-1.5 rounded-lg shrink-0" style={{ background: "#2a2b2a", color: C.green }}>
+            className="p-1.5 rounded-lg shrink-0" style={{ background: C.sidebarHoverBg, color: C.greenDark }}>
             {theme === "light" ? <Moon size={14} /> : <Sun size={14} />}
           </button>
         </div>
@@ -570,12 +585,12 @@ function CRMApp({ session }) {
             return (
               <button key={n.key} onClick={() => setView(n.key)}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                style={{ background: active ? C.green : "transparent", color: active ? C.charcoal : "#c9cbd1" }}>
+                style={{ background: active ? C.green : "transparent", color: active ? C.sidebarActiveText : C.sidebarTextMuted }}>
                 <n.icon size={16} />
                 <span className="flex-1 text-left">{n.label}</span>
                 {n.badge > 0 && (
                   <span className="text-[10px] font-bold rounded-full px-1.5 py-0.5"
-                    style={{ background: active ? C.charcoal : C.hot, color: active ? C.green : "#fff" }}>
+                    style={{ background: active ? C.sidebarActiveText : C.hot, color: active ? C.green : "#fff" }}>
                     {n.badge}
                   </span>
                 )}
@@ -583,11 +598,11 @@ function CRMApp({ session }) {
             );
           })}
         </div>
-        <div className="px-4 py-4 text-[11px] border-t flex flex-col gap-2" style={{ borderColor: "#333", color: "#8b8d94" }}>
+        <div className="px-4 py-4 text-[11px] border-t flex flex-col gap-2" style={{ borderColor: C.sidebarBorder, color: C.sidebarTextMuted }}>
           <div>Freight Brokerage under LGI<br />Medellín · USA/NA market</div>
-          <div className="pt-2 border-t flex items-center justify-between" style={{ borderColor: "#333" }}>
+          <div className="pt-2 border-t flex items-center justify-between" style={{ borderColor: C.sidebarBorder }}>
             <span className="truncate" style={{ maxWidth: 130 }}>{session?.user?.email}</span>
-            <button onClick={() => supabase.auth.signOut()} className="font-semibold shrink-0" style={{ color: C.green }}>Salir</button>
+            <button onClick={() => supabase.auth.signOut()} className="font-semibold shrink-0" style={{ color: C.greenDark }}>Salir</button>
           </div>
         </div>
       </div>
@@ -648,6 +663,7 @@ function CRMApp({ session }) {
       {selectedLead && (
         <LeadDetail key={selectedLead.id} lead={selectedLead} activities={activities.filter(a => a.leadId === selectedLead.id)}
           tasks={tasks.filter(t => t.leadId === selectedLead.id)} toggleTaskDone={toggleTaskDone}
+          notes={notes.filter(n => n.leadId === selectedLead.id)} addNote={addNote}
           onClose={() => setSelectedLeadId(null)} updateLead={updateLead} deleteLead={deleteLead} logActivity={logActivity} />
       )}
       {showNewLead && <NewLeadModal onClose={() => setShowNewLead(false)} onCreate={(l) => { addLead(l); setShowNewLead(false); }} />}
@@ -1020,7 +1036,7 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: C.bg }} className="text-left">
-              {["Company", "Contact", "State", "Source", "Priority", "Score", "Stage", "Rep", "Est. Rev/mo", "Next Follow-up"].map(h => (
+              {["Company", "Contact", "State", "Source", "Priority", "Stage", "Rep", "Est. Rev/mo", "Next Follow-up"].map(h => (
                 <th key={h} className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide" style={{ color: C.slate }}>{h}</th>
               ))}
             </tr>
@@ -1043,7 +1059,6 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
                   <td className="px-4 py-2.5" style={{ color: C.ink }}>{l.state}</td>
                   <td className="px-4 py-2.5" style={{ color: C.slate }}>{l.source}</td>
                   <td className="px-4 py-2.5"><PriorityBadge p={l.priority} /></td>
-                  <td className="px-4 py-2.5"><ScoreRing score={l.score} size={30} /></td>
                   <td className="px-4 py-2.5"><StagePill stage={l.stage} /></td>
                   <td className="px-4 py-2.5"><div className="flex items-center gap-1.5"><Avatar name={l.assignedTo} size={20} /><span className="text-xs" style={{ color: C.ink }}>{l.assignedTo.split(" ")[0]}</span></div></td>
                   <td className="px-4 py-2.5" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>{money(l.estMonthlyRevenue)}</td>
@@ -1528,11 +1543,12 @@ function Row({ label, value }) {
 }
 
 /* ============================== LEAD DETAIL DRAWER ============================== */
-function LeadDetail({ lead, activities, tasks, toggleTaskDone, onClose, updateLead, deleteLead, logActivity }) {
+function LeadDetail({ lead, activities, tasks, toggleTaskDone, notes, addNote, onClose, updateLead, deleteLead, logActivity }) {
   const [type, setType] = useState("Phone Call");
-  const [notes, setNotes] = useState("");
+  const [taskNotes, setTaskNotes] = useState("");
   const [next, setNext] = useState(lead.nextFollowupDate || fmt(addDays(TODAY, 3)));
   const [saved, setSaved] = useState(false);
+  const [newNoteText, setNewNoteText] = useState("");
   const leadTasks = tasks.filter(t => !t.done).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
@@ -1562,7 +1578,6 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, onClose, updateLe
           <div className="flex items-center gap-2 mt-1"><PriorityBadge p={lead.priority} /><StagePill stage={lead.stage} /></div>
         </div>
         <div className="flex items-center gap-2">
-          <ScoreRing score={lead.score} />
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={18} /></button>
         </div>
       </div>
@@ -1616,18 +1631,6 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, onClose, updateLe
               <InfoRow icon={Building2} text={`${lead.legalName} · ${lead.industry} · ${lead.companySize} employees`} />
               <InfoRow icon={Truck} text={`${lead.trucks} trucks · ${lead.website}`} />
             </Section>
-
-            <Section title="Freight Profile">
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <Kv k="Lanes" v={lead.mainLanes} /><Kv k="Equipment" v={lead.equipmentType} />
-                <Kv k="Avg Weekly Loads" v={lead.avgWeeklyLoads} /><Kv k="Avg Weight" v={lead.avgWeight} />
-                <Kv k="Commodity" v={lead.commodity} /><Kv k="Current Provider" v={lead.currentProvider} />
-                <Kv k="Hazmat" v={lead.hazmat ? "Yes" : "No"} /><Kv k="Temp Controlled" v={lead.tempControlled ? "Yes" : "No"} />
-              </div>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {lead.servicesInterest.map(s => <span key={s} className="text-[10px] rounded-full px-2 py-0.5" style={{ background: C.greenTint, color: C.greenDark }}>{s}</span>)}
-              </div>
-            </Section>
           </>
         ) : (
           <>
@@ -1652,15 +1655,6 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, onClose, updateLe
                 <div className="col-span-2"><FieldLabel>Website</FieldLabel><input value={form.website} onChange={setF("website")} className={inputStyle} style={{ borderColor: C.line }} /></div>
               </div>
             </Section>
-            <Section title="Freight Profile">
-              <div className="grid grid-cols-2 gap-2">
-                <div><FieldLabel>Lanes</FieldLabel><input value={form.mainLanes} onChange={setF("mainLanes")} className={inputStyle} style={{ borderColor: C.line }} /></div>
-                <div><FieldLabel>Equipment</FieldLabel><input value={form.equipmentType} onChange={setF("equipmentType")} className={inputStyle} style={{ borderColor: C.line }} /></div>
-                <div><FieldLabel>Avg Weekly Loads</FieldLabel><input type="number" value={form.avgWeeklyLoads} onChange={setF("avgWeeklyLoads")} className={inputStyle} style={{ borderColor: C.line }} /></div>
-                <div><FieldLabel>Commodity</FieldLabel><input value={form.commodity} onChange={setF("commodity")} className={inputStyle} style={{ borderColor: C.line }} /></div>
-                <div className="col-span-2"><FieldLabel>Current Provider</FieldLabel><input value={form.currentProvider} onChange={setF("currentProvider")} className={inputStyle} style={{ borderColor: C.line }} /></div>
-              </div>
-            </Section>
           </>
         )}
 
@@ -1682,8 +1676,8 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, onClose, updateLe
             <select value={type} onChange={e => setType(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>
               {ACTIVITY_TYPES.map(t => <option key={t}>{t}</option>)}
             </select>
-            <TemplatePicker onPick={setNotes} />
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What needs to be done? (task comment)" rows={2}
+            <TemplatePicker onPick={setTaskNotes} />
+            <textarea value={taskNotes} onChange={e => setTaskNotes(e.target.value)} placeholder="What needs to be done? (task comment)" rows={2}
               className="border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} />
             <div className="flex items-center gap-2">
               <FieldLabel>Task Due Date</FieldLabel>
@@ -1691,8 +1685,8 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, onClose, updateLe
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => {
-                logActivity(lead.id, { type, notes: notes || "Logged activity.", salesperson: lead.assignedTo, outcome: "Connected", nextStep: "Follow up" }, next);
-                setNotes(""); setSaved(true); setTimeout(() => setSaved(false), 2500);
+                logActivity(lead.id, { type, notes: taskNotes || "Logged activity.", salesperson: lead.assignedTo, outcome: "Connected", nextStep: "Follow up" }, next);
+                setTaskNotes(""); setSaved(true); setTimeout(() => setSaved(false), 2500);
               }} className="self-start px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>Save Task</button>
               {saved && <span className="text-xs font-semibold flex items-center gap-1" style={{ color: C.greenDark }}><CheckCircle2 size={14} />Saved</span>}
             </div>
@@ -1706,6 +1700,24 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, onClose, updateLe
               </div>
             ))}
             {activities.length === 0 && <div className="text-xs" style={{ color: C.slate }}>No activity logged yet.</div>}
+          </div>
+        </Section>
+
+        <Section title="Notes">
+          <div className="flex flex-col gap-2 mb-3">
+            <textarea value={newNoteText} onChange={e => setNewNoteText(e.target.value)} placeholder="Add a quick note — no task or date needed…" rows={2}
+              className="border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} />
+            <button onClick={() => { if (newNoteText.trim()) { addNote(lead.id, newNoteText.trim()); setNewNoteText(""); } }}
+              className="self-start px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.charcoal, color: "#fff" }}>Add Note</button>
+          </div>
+          <div className="flex flex-col gap-2 max-h-52 overflow-y-auto">
+            {notes.map(n => (
+              <div key={n.id} className="text-sm border-t pt-2" style={{ borderColor: C.line }}>
+                <div style={{ color: C.ink }}>{n.text}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: C.slate }}>{n.author} · {n.date}</div>
+              </div>
+            ))}
+            {notes.length === 0 && <div className="text-xs" style={{ color: C.slate }}>No notes yet.</div>}
           </div>
         </Section>
 
