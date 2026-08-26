@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, Phone, UserCheck,
   BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun,
   Mail, MapPin, Building2, TrendingUp, TrendingDown, Clock, CheckCircle2,
-  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon
+  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon, Linkedin, Globe
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie,
@@ -181,6 +181,7 @@ function genLeads() {
       companySize: pick(["1-10", "11-50", "51-200", "201-500", "500+"]),
       trucks, employees: rint(10, 900),
       website: "www." + co.name.toLowerCase().replace(/[^a-z]+/g, "") + ".com",
+      companyLinkedin: "linkedin.com/company/" + co.name.toLowerCase().replace(/[^a-z]+/g, "-"),
       city: co.city, state: co.state, timeZone: pick(["ET", "CT", "MT", "PT"]),
       contactFirst: pick(FIRST_NAMES), contactLast: pick(LAST_NAMES),
       jobTitle: pick(JOB_TITLES), department: pick(["Operations", "Logistics", "Procurement", "Executive"]),
@@ -950,7 +951,7 @@ function csvRowsToLeads(rows) {
 
     out.push({
       id: "L" + Date.now() + "-" + r, companyName, legalName: companyName, industry: "",
-      companySize: "11-50", trucks: 0, employees: 0, website: "", city: get("city"), state: get("state"),
+      companySize: "11-50", trucks: 0, employees: 0, website: "", companyLinkedin: "", city: get("city"), state: get("state"),
       timeZone: "CT", contactFirst, contactLast: get("contactLast"), jobTitle: get("jobTitle") || "Operations Manager",
       department: "Operations", email: get("email"), phone: get("phone"), mobile: get("phone"), linkedin: "",
       source, priority, score, stage, assignedTo, servicesInterest,
@@ -1556,14 +1557,12 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, notes, addNote, o
     email: lead.email, phone: lead.phone, mobile: lead.mobile,
     city: lead.city, state: lead.state,
     legalName: lead.legalName, industry: lead.industry, companySize: lead.companySize,
-    trucks: lead.trucks, website: lead.website,
-    mainLanes: lead.mainLanes, equipmentType: lead.equipmentType,
-    avgWeeklyLoads: lead.avgWeeklyLoads, commodity: lead.commodity, currentProvider: lead.currentProvider,
+    website: lead.website, companyLinkedin: lead.companyLinkedin || "",
   });
   const setF = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
 
   const saveEdits = () => {
-    updateLead(lead.id, { ...form, trucks: Number(form.trucks) || 0, avgWeeklyLoads: Number(form.avgWeeklyLoads) || 0 });
+    updateLead(lead.id, { ...form });
     setEditing(false);
   };
 
@@ -1629,7 +1628,8 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, notes, addNote, o
 
             <Section title="Company">
               <InfoRow icon={Building2} text={`${lead.legalName} · ${lead.industry} · ${lead.companySize} employees`} />
-              <InfoRow icon={Truck} text={`${lead.trucks} trucks · ${lead.website}`} />
+              <InfoRow icon={Globe} text={lead.website || "No website on file"} />
+              <InfoRow icon={Linkedin} text={lead.companyLinkedin || "No LinkedIn on file"} />
             </Section>
           </>
         ) : (
@@ -1651,8 +1651,8 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, notes, addNote, o
                 <div><FieldLabel>Legal Name</FieldLabel><input value={form.legalName} onChange={setF("legalName")} className={inputStyle} style={{ borderColor: C.line }} /></div>
                 <div><FieldLabel>Industry</FieldLabel><input value={form.industry} onChange={setF("industry")} className={inputStyle} style={{ borderColor: C.line }} /></div>
                 <div><FieldLabel>Company Size</FieldLabel><input value={form.companySize} onChange={setF("companySize")} className={inputStyle} style={{ borderColor: C.line }} /></div>
-                <div><FieldLabel>Trucks</FieldLabel><input type="number" value={form.trucks} onChange={setF("trucks")} className={inputStyle} style={{ borderColor: C.line }} /></div>
-                <div className="col-span-2"><FieldLabel>Website</FieldLabel><input value={form.website} onChange={setF("website")} className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div><FieldLabel>Website</FieldLabel><input value={form.website} onChange={setF("website")} placeholder="www.company.com" className={inputStyle} style={{ borderColor: C.line }} /></div>
+                <div className="col-span-2"><FieldLabel>LinkedIn Company Page</FieldLabel><input value={form.companyLinkedin} onChange={setF("companyLinkedin")} placeholder="linkedin.com/company/..." className={inputStyle} style={{ borderColor: C.line }} /></div>
               </div>
             </Section>
           </>
@@ -1759,7 +1759,7 @@ function NewLeadModal({ onClose, onCreate }) {
     const score = Math.min(100, Math.round((f.priority === "Hot" ? 40 : f.priority === "Warm" ? 22 : 8) + rint(10, 30)));
     onCreate({
       id: "L" + Date.now(), companyName: f.companyName, legalName: f.companyName, industry: f.industry,
-      companySize: "11-50", trucks: rint(3, 60), employees: rint(10, 150), website: "", city: f.city, state: f.state,
+      companySize: "11-50", trucks: rint(3, 60), employees: rint(10, 150), website: "", companyLinkedin: "", city: f.city, state: f.state,
       timeZone: "CT", contactFirst: f.contactFirst, contactLast: f.contactLast, jobTitle: f.jobTitle,
       department: "Operations", email: f.email, phone: f.phone, mobile: f.phone, linkedin: "",
       source: f.source, priority: f.priority, score, stage: "New Lead", assignedTo: f.assignedTo,
