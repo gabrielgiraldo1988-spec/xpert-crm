@@ -24,38 +24,38 @@ function verifySvixSignature(rawBody, headers, secret) {
   const id = headers["svix-id"];
   const timestamp = headers["svix-timestamp"];
   const signatureHeader = headers["svix-signature"];
-
-  // Trim defensively in case the secret was copy-pasted with a stray
-  // space or newline into the Vercel environment variable.
   const cleanSecret = (secret || "").trim();
 
-  console.log("[inbound-quote] DEBUG headers present:", {
-    hasId: !!id, hasTimestamp: !!timestamp, hasSignature: !!signatureHeader,
-    secretLength: cleanSecret.length, rawBodyLength: rawBody.length,
-  });
+  const debug = {
+    hasId: !!id, hasTimestamp: !!timestamp, hasSignatureHeader: !!signatureHeader,
+    secretLength: cleanSecret.length, secretPrefix: cleanSecret.slice(0, 6),
+    rawBodyLength: rawBody.length,
+  };
 
   if (!id || !timestamp || !signatureHeader || !cleanSecret) {
-    console.log("[inbound-quote] DEBUG missing required piece, failing early");
-    return false;
+    return { valid: false, debug: { ...debug, reason: "missing required piece" } };
   }
 
-  // Resend/Svix secrets are prefixed "whsec_" followed by base64 bytes.
-  const secretBytes = Buffer.from(cleanSecret.replace(/^whsec_/, ""), "base64");
+  let secretBytes;
+  try {
+    secretBytes = Buffer.from(cleanSecret.replace(/^whsec_/, ""), "base64");
+  } catch (e) {
+    return { valid: false, debug: { ...debug, reason: "secret decode failed: " + e.message } };
+  }
+
   const signedContent = `${id}.${timestamp}.${rawBody}`;
   const expected = crypto.createHmac("sha256", secretBytes).update(signedContent).digest("base64");
-
   const candidates = signatureHeader.split(" ").map((s) => s.split(",")[1]).filter(Boolean);
-  console.log("[inbound-quote] DEBUG expected signature:", expected);
-  console.log("[inbound-quote] DEBUG received candidates:", candidates);
 
-  return candidates.some((candidate) => {
+  const valid = candidates.some((candidate) => {
     try {
       return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(expected));
     } catch (e) {
-      console.log("[inbound-quote] DEBUG comparison threw (likely length mismatch):", e.message);
       return false;
     }
   });
+
+  return { valid, debug: { ...debug, expectedSignature: expected, receivedCandidates: candidates } };
 }
 
 function readRawBody(req) {
@@ -122,8 +122,13 @@ export default async function handler(req, res) {
 
   const rawBody = await readRawBody(req);
 
-  const valid = verifySvixSignature(rawBody, req.headers, process.env.RESEND_WEBHOOK_SECRET);
-  if (!valid) return res.status(401).json({ error: "Invalid signature" });
+  const result = verifySvixSignature(rawBody, req.headers, process.env.RESEND_WEBHOOK_SECRET);
+  if (!result.valid) {
+    // TEMPORARY: return debug details in the response so we can see them
+    // directly in Resend's webhook delivery log, without needing Vercel's
+    // log viewer. Remove the "debug" field once this is confirmed working.
+    return res.status(401).json({ error: "Invalid signature", debug: result.debug });
+  }
 
   let event;
   try {
