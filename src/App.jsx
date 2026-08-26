@@ -701,6 +701,7 @@ function CRMApp({ session }) {
         </div>
 
         <TaskBanner leads={leads} tasks={tasks} myRep={myRep} setView={setView} />
+        <QuoteReviewBanner quotes={quotes} myRep={myRep} setView={setView} />
 
         <div className="flex-1 overflow-y-auto p-6">
           {view === "myday" && <MyDayView leads={leads} tasks={tasks} activities={activities} myRep={myRep} setSelectedLeadId={setSelectedLeadId} setView={setView} />}
@@ -752,6 +753,25 @@ function TaskBanner({ leads, tasks, myRep, setView }) {
         <button onClick={() => setView("calendar")} className="text-xs font-semibold underline" style={{ color: overdueCount > 0 ? C.danger : C.greenDark }}>View Calendar</button>
         <button onClick={() => setDismissed(true)} className="p-1"><X size={14} style={{ color: C.slate }} /></button>
       </div>
+    </div>
+  );
+}
+
+function QuoteReviewBanner({ quotes, myRep, setView }) {
+  const relevant = myRep ? quotes.filter((q) => q.createdBy === myRep) : quotes;
+  const pendingCount = relevant.filter((q) => q.status === "Pending Review").length;
+
+  if (pendingCount === 0) return null;
+
+  return (
+    <div className="px-6 py-2.5 flex items-center justify-between gap-3 shrink-0"
+      style={{ background: C.warm + "1a", borderBottom: `1px solid ${C.line}` }}>
+      <div className="text-sm font-medium" style={{ color: C.warm }}>
+        {pendingCount} quote{pendingCount !== 1 ? "s" : ""} pending review
+      </div>
+      <button onClick={() => setView("quotes")} className="text-xs font-semibold underline" style={{ color: C.warm }}>
+        Review Quotes
+      </button>
     </div>
   );
 }
@@ -1329,7 +1349,7 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActi
   const scoped = myRep ? quotes.filter((q) => q.createdBy === myRep) : quotes;
   const sorted = [...scoped].sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
 
-  const statusColor = { Sent: C.slate, Won: C.green, Lost: C.danger };
+  const statusColor = { Sent: C.slate, Won: C.green, Lost: C.danger, "Pending Review": C.warm };
 
   return (
     <div className="flex flex-col gap-4">
@@ -1381,8 +1401,18 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActi
 
 function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelectedLeadId }) {
   const [copied, setCopied] = useState(false);
+  const [rateMin, setRateMin] = useState(quote.rateMin == null ? "" : String(quote.rateMin));
+  const [rateMax, setRateMax] = useState(quote.rateMax == null ? "" : String(quote.rateMax));
   const text = buildQuoteText(quote);
   const mailtoHref = `mailto:${quote.contactEmail || ""}?subject=${encodeURIComponent("Quote — " + quote.origin + " to " + quote.destination)}&body=${encodeURIComponent(text)}`;
+
+  const confirmAndMarkSent = () => {
+    const min = Number(rateMin);
+    const max = Number(rateMax);
+    if (!rateMin.trim() || !rateMax.trim() || !Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= 0) return;
+    updateQuote(quote.id, { rateMin: min, rateMax: max, status: "Sent" });
+    onClose();
+  };
 
   const copyToClipboard = () => {
     navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
@@ -1397,8 +1427,26 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
       <div className="p-5 flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-2 text-sm">
           <Kv k="Lane" v={`${quote.origin} → ${quote.destination}`} /><Kv k="Equipment" v={quote.equipment} />
-          <Kv k="Pickup" v={quote.pickupDate || "TBD"} /><Kv k="Rate" v={`$${quote.rateMin?.toLocaleString()}–$${quote.rateMax?.toLocaleString()}`} />
+          <Kv k="Pickup" v={quote.pickupDate || "TBD"} />
+          {quote.status === "Pending Review" ? (
+            <div>
+              <FieldLabel>Rate</FieldLabel>
+              <div className="flex items-center gap-1">
+                <input type="number" min="0" value={rateMin} onChange={(e) => setRateMin(e.target.value)} placeholder="Min"
+                  className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} />
+                <span style={{ color: C.slate }}>–</span>
+                <input type="number" min="0" value={rateMax} onChange={(e) => setRateMax(e.target.value)} placeholder="Max"
+                  className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} />
+              </div>
+            </div>
+          ) : <Kv k="Rate" v={`$${quote.rateMin?.toLocaleString()}–$${quote.rateMax?.toLocaleString()}`} />}
         </div>
+
+        {quote.status === "Pending Review" && (
+          <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: C.warm + "1a", color: C.warm }}>
+            This quote was created automatically from an email. Complete and confirm the rate before marking it as sent.
+          </div>
+        )}
 
         {quote.leadId && (
           <button onClick={() => { setSelectedLeadId(quote.leadId); onClose(); }} className="text-xs font-semibold text-left" style={{ color: C.greenDark }}>
@@ -1409,15 +1457,23 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
         <div>
           <FieldLabel>Status</FieldLabel>
           <div className="flex gap-2">
-            {["Sent", "Won", "Lost"].map((s) => (
-              <button key={s} onClick={() => updateQuote(quote.id, { status: s })}
+            {["Pending Review", "Sent", "Won", "Lost"].map((s) => (
+              <button key={s} disabled={quote.status === "Pending Review" && s === "Sent"} onClick={() => updateQuote(quote.id, { status: s })}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg border"
-                style={{ borderColor: quote.status === s ? C.green : C.line, background: quote.status === s ? C.greenTint : "transparent", color: quote.status === s ? C.greenDark : C.slate }}>
+                style={{ borderColor: quote.status === s ? C.green : C.line, background: quote.status === s ? C.greenTint : "transparent", color: quote.status === s ? C.greenDark : C.slate, opacity: quote.status === "Pending Review" && s === "Sent" ? 0.5 : 1 }}>
                 {s}
               </button>
             ))}
           </div>
         </div>
+
+        {quote.status === "Pending Review" && (
+          <button onClick={confirmAndMarkSent} disabled={!rateMin.trim() || !rateMax.trim()}
+            className="px-3 py-2 rounded-lg text-sm font-semibold self-start"
+            style={{ background: C.green, color: C.charcoal, opacity: !rateMin.trim() || !rateMax.trim() ? 0.5 : 1 }}>
+            Confirm & Mark as Sent
+          </button>
+        )}
 
         <div>
           <FieldLabel>Quote Message</FieldLabel>
