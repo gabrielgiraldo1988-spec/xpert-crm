@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, Phone, UserCheck,
   BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun,
   Mail, MapPin, Building2, TrendingUp, TrendingDown, Clock, CheckCircle2,
-  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon, Linkedin, Globe
+  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon, Link2, Globe
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie,
@@ -1629,7 +1629,7 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, notes, addNote, o
             <Section title="Company">
               <InfoRow icon={Building2} text={`${lead.legalName} · ${lead.industry} · ${lead.companySize} employees`} />
               <InfoRow icon={Globe} text={lead.website || "No website on file"} />
-              <InfoRow icon={Linkedin} text={lead.companyLinkedin || "No LinkedIn on file"} />
+              <InfoRow icon={Link2} text={lead.companyLinkedin || "No LinkedIn on file"} />
             </Section>
           </>
         ) : (
