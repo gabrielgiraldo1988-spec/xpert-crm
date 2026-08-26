@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, Phone, UserCheck,
   BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun,
   Mail, MapPin, Building2, TrendingUp, TrendingDown, Clock, CheckCircle2,
-  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon, Link2, Globe
+  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon, Link2, Globe, FileText, Copy
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie,
@@ -375,6 +375,7 @@ function CRMApp({ session }) {
   const [activities, setActivities] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState(() => EMAIL_TO_REP[session?.user?.email] ? "myday" : "dashboard");
   const [search, setSearch] = useState("");
@@ -433,6 +434,7 @@ function CRMApp({ session }) {
           setActivities(parsed.activities || []);
           setTasks(parsed.tasks || []);
           setNotes(parsed.notes || []);
+          setQuotes(parsed.quotes || []);
           setLoading(false);
           return;
         }
@@ -443,51 +445,52 @@ function CRMApp({ session }) {
       setActivities(seedActivities);
       setTasks([]);
       setNotes([]);
+      setQuotes([]);
       setLoading(false);
       try {
-        await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities, tasks: [], notes: [] }) });
+        await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities, tasks: [], notes: [], quotes: [] }) });
       } catch (e) { /* storage best-effort */ }
     })();
   }, []);
 
-  const persist = useCallback(async (nextLeads, nextActivities, nextTasks, nextNotes) => {
+  const persist = useCallback(async (nextLeads, nextActivities, nextTasks, nextNotes, nextQuotes) => {
     try {
-      await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: nextLeads, activities: nextActivities, tasks: nextTasks, notes: nextNotes }) });
+      await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: nextLeads, activities: nextActivities, tasks: nextTasks, notes: nextNotes, quotes: nextQuotes }) });
     } catch (e) { /* best-effort */ }
   }, []);
 
   const updateLead = useCallback((id, patch) => {
     setLeads((prev) => {
       const next = prev.map((l) => (l.id === id ? { ...l, ...patch } : l));
-      persist(next, activities, tasks, notes);
+      persist(next, activities, tasks, notes, quotes);
       return next;
     });
-  }, [activities, tasks, notes, persist]);
+  }, [activities, tasks, notes, quotes, persist]);
 
   const deleteLead = useCallback((id) => {
     setLeads((prev) => {
       const next = prev.filter((l) => l.id !== id);
-      persist(next, activities, tasks, notes);
+      persist(next, activities, tasks, notes, quotes);
       return next;
     });
     setSelectedLeadId(null);
-  }, [activities, tasks, notes, persist]);
+  }, [activities, tasks, notes, quotes, persist]);
 
   const addLead = useCallback((lead) => {
     setLeads((prev) => {
       const next = [lead, ...prev];
-      persist(next, activities, tasks, notes);
+      persist(next, activities, tasks, notes, quotes);
       return next;
     });
-  }, [activities, tasks, notes, persist]);
+  }, [activities, tasks, notes, quotes, persist]);
 
   const addLeadsBulk = useCallback((newLeads) => {
     setLeads((prev) => {
       const next = [...newLeads, ...prev];
-      persist(next, activities, tasks, notes);
+      persist(next, activities, tasks, notes, quotes);
       return next;
     });
-  }, [activities, tasks, notes, persist]);
+  }, [activities, tasks, notes, quotes, persist]);
 
   const logActivity = useCallback((leadId, act, dueDate) => {
     setLeads((prevL) => {
@@ -504,30 +507,46 @@ function CRMApp({ session }) {
             assignedTo: lead ? lead.assignedTo : "", type: act.type, notes: act.notes,
             dueDate, done: false, createdDate: fmt(TODAY),
           }, ...prevT] : prevT;
-          persist(nextL, nextA, nextT, notes);
+          persist(nextL, nextA, nextT, notes, quotes);
           return nextT;
         });
         return nextA;
       });
       return nextL;
     });
-  }, [persist, notes]);
+  }, [persist, notes, quotes]);
 
   const toggleTaskDone = useCallback((taskId) => {
     setTasks((prev) => {
       const next = prev.map((t) => t.id === taskId ? { ...t, done: !t.done } : t);
-      persist(leads, activities, next, notes);
+      persist(leads, activities, next, notes, quotes);
       return next;
     });
-  }, [leads, activities, notes, persist]);
+  }, [leads, activities, notes, quotes, persist]);
 
   const addNote = useCallback((leadId, text) => {
     setNotes((prev) => {
       const next = [{ id: "N" + Date.now(), leadId, text, author: myRep || session?.user?.email || "Unknown", date: fmt(TODAY) }, ...prev];
-      persist(leads, activities, tasks, next);
+      persist(leads, activities, tasks, next, quotes);
       return next;
     });
-  }, [leads, activities, tasks, persist, myRep, session]);
+  }, [leads, activities, tasks, quotes, persist, myRep, session]);
+
+  const addQuote = useCallback((quote) => {
+    setQuotes((prev) => {
+      const next = [quote, ...prev];
+      persist(leads, activities, tasks, notes, next);
+      return next;
+    });
+  }, [leads, activities, tasks, notes, persist]);
+
+  const updateQuote = useCallback((id, patch) => {
+    setQuotes((prev) => {
+      const next = prev.map((q) => q.id === id ? { ...q, ...patch } : q);
+      persist(leads, activities, tasks, notes, next);
+      return next;
+    });
+  }, [leads, activities, tasks, notes, persist]);
 
   const selectedLead = useMemo(() => leads.find((l) => l.id === selectedLeadId) || null, [leads, selectedLeadId]);
 
@@ -548,6 +567,7 @@ function CRMApp({ session }) {
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "leads", label: "Leads", icon: Users },
     { key: "pipeline", label: "Pipeline", icon: KanbanSquare },
+    { key: "quotes", label: "Quotes", icon: FileText },
     { key: "activities", label: "Activities", icon: Phone, badge: overdueCount + dueTodayCount },
     { key: "calendar", label: "Calendar", icon: Calendar, badge: overdueCount + dueTodayCount },
     { key: "customers", label: "Customers", icon: UserCheck, badge: customersCount },
@@ -653,6 +673,7 @@ function CRMApp({ session }) {
           {view === "dashboard" && <Dashboard leads={leads} activities={activities} setView={setView} setSelectedLeadId={setSelectedLeadId} />}
           {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} addLeadsBulk={addLeadsBulk} />}
           {view === "pipeline" && <PipelineView leads={leads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} repFilter={pipelineRep} setRepFilter={setPipelineRep} />}
+          {view === "quotes" && <QuotesView leads={leads} quotes={quotes} addQuote={addQuote} updateQuote={updateQuote} logActivity={logActivity} myRep={myRep} setSelectedLeadId={setSelectedLeadId} />}
           {view === "activities" && <ActivitiesView leads={leads} activities={activities} logActivity={logActivity} setSelectedLeadId={setSelectedLeadId} repFilter={activityRep} setRepFilter={setActivityRep} />}
           {view === "calendar" && <CalendarView tasks={tasks} toggleTaskDone={toggleTaskDone} setSelectedLeadId={setSelectedLeadId} repFilter={calendarRep} setRepFilter={setCalendarRep} />}
           {view === "customers" && <CustomersView leads={leads} setSelectedLeadId={setSelectedLeadId} />}
@@ -1232,8 +1253,285 @@ function QuickLog({ lead, onDone, onCancel }) {
   );
 }
 
-/* ============================== CUSTOMERS ============================== */
-/* ============================== CALENDAR ============================== */
+/* ============================== QUOTES ============================== */
+const EQUIPMENT_OPTIONS = ["Dry Van", "Reefer", "Flatbed", "Multiple"];
+
+function computeSuggestedRate(quotes, origin, destination, equipment) {
+  const o = (origin || "").trim().toLowerCase();
+  const d = (destination || "").trim().toLowerCase();
+  const matches = quotes.filter((q) =>
+    (q.origin || "").trim().toLowerCase() === o &&
+    (q.destination || "").trim().toLowerCase() === d &&
+    q.equipment === equipment &&
+    q.rateMin != null && q.rateMax != null
+  );
+  if (matches.length === 0) return null;
+  const avgMin = Math.round(matches.reduce((s, q) => s + q.rateMin, 0) / matches.length);
+  const avgMax = Math.round(matches.reduce((s, q) => s + q.rateMax, 0) / matches.length);
+  return { avgMin, avgMax, count: matches.length };
+}
+
+function buildQuoteText(q) {
+  return `Hi ${q.contactName || "there"},
+
+Thank you for reaching out to Xpert Freight. Here's our quote for your shipment:
+
+Lane: ${q.origin} → ${q.destination}
+Equipment: ${q.equipment}
+${q.commodity ? `Commodity: ${q.commodity}\n` : ""}${q.weight ? `Weight: ${q.weight}\n` : ""}Pickup: ${q.pickupDate || "TBD"}
+
+Rate: $${q.rateMin?.toLocaleString()} – $${q.rateMax?.toLocaleString()}
+
+${q.notes ? q.notes + "\n\n" : ""}Let us know if you'd like to move forward or if you have any questions — happy to help.
+
+Best regards,
+${q.createdBy || "Xpert Freight"}
+Xpert Freight`;
+}
+
+function QuotesView({ leads, quotes, addQuote, updateQuote, logActivity, myRep, setSelectedLeadId }) {
+  const [showNew, setShowNew] = useState(false);
+  const [viewingQuote, setViewingQuote] = useState(null);
+  const scoped = myRep ? quotes.filter((q) => q.createdBy === myRep) : quotes;
+  const sorted = [...scoped].sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
+
+  const statusColor = { Sent: C.slate, Won: C.green, Lost: C.danger };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h1 className="text-xl font-bold" style={{ color: C.ink }}>Quotes <span style={{ color: C.slate, fontWeight: 500 }}>({sorted.length})</span></h1>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>
+          <Plus size={16} /> New Quote
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: C.line }}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr style={{ background: C.bg }} className="text-left">
+              {["Date", "Company", "Lane", "Equipment", "Rate", "Rep", "Status"].map(h => (
+                <th key={h} className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide" style={{ color: C.slate }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((q) => (
+              <tr key={q.id} onClick={() => setViewingQuote(q)} className="border-t cursor-pointer hover:bg-gray-50" style={{ borderColor: C.line }}>
+                <td className="px-4 py-2.5" style={{ color: C.slate }}>{q.createdDate}</td>
+                <td className="px-4 py-2.5 font-medium" style={{ color: C.ink }}>{q.companyName}</td>
+                <td className="px-4 py-2.5" style={{ color: C.ink }}>{q.origin} → {q.destination}</td>
+                <td className="px-4 py-2.5" style={{ color: C.slate }}>{q.equipment}</td>
+                <td className="px-4 py-2.5" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>${q.rateMin?.toLocaleString()}–${q.rateMax?.toLocaleString()}</td>
+                <td className="px-4 py-2.5" style={{ color: C.slate }}>{q.createdBy}</td>
+                <td className="px-4 py-2.5">
+                  <span className="text-xs font-semibold rounded-full px-2 py-0.5" style={{ background: statusColor[q.status] + "1a", color: statusColor[q.status] }}>{q.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {sorted.length === 0 && <div className="p-8 text-center text-sm" style={{ color: C.slate }}>No quotes yet. Create your first one.</div>}
+      </div>
+
+      {showNew && (
+        <NewQuoteModal leads={leads} quotes={quotes} myRep={myRep} onClose={() => setShowNew(false)}
+          onCreate={(q) => { addQuote(q); setShowNew(false); setViewingQuote(q); }} logActivity={logActivity} />
+      )}
+      {viewingQuote && (
+        <QuoteDetailModal quote={viewingQuote} onClose={() => setViewingQuote(null)} updateQuote={updateQuote} setSelectedLeadId={setSelectedLeadId} />
+      )}
+    </div>
+  );
+}
+
+function QuoteDetailModal({ quote, onClose, updateQuote, setSelectedLeadId }) {
+  const [copied, setCopied] = useState(false);
+  const text = buildQuoteText(quote);
+  const mailtoHref = `mailto:${quote.contactEmail || ""}?subject=${encodeURIComponent("Quote — " + quote.origin + " to " + quote.destination)}&body=${encodeURIComponent(text)}`;
+
+  const copyToClipboard = () => {
+    navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  return (
+    <Modal onClose={onClose} width={560}>
+      <div className="px-5 py-4 border-b flex items-center justify-between sticky top-0 bg-white z-10" style={{ borderColor: C.line }}>
+        <h2 className="text-lg font-bold" style={{ color: C.ink }}>{quote.companyName}</h2>
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+      </div>
+      <div className="p-5 flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <Kv k="Lane" v={`${quote.origin} → ${quote.destination}`} /><Kv k="Equipment" v={quote.equipment} />
+          <Kv k="Pickup" v={quote.pickupDate || "TBD"} /><Kv k="Rate" v={`$${quote.rateMin?.toLocaleString()}–$${quote.rateMax?.toLocaleString()}`} />
+        </div>
+
+        {quote.leadId && (
+          <button onClick={() => { setSelectedLeadId(quote.leadId); onClose(); }} className="text-xs font-semibold text-left" style={{ color: C.greenDark }}>
+            View linked lead →
+          </button>
+        )}
+
+        <div>
+          <FieldLabel>Status</FieldLabel>
+          <div className="flex gap-2">
+            {["Sent", "Won", "Lost"].map((s) => (
+              <button key={s} onClick={() => updateQuote(quote.id, { status: s })}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg border"
+                style={{ borderColor: quote.status === s ? C.green : C.line, background: quote.status === s ? C.greenTint : "transparent", color: quote.status === s ? C.greenDark : C.slate }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <FieldLabel>Quote Message</FieldLabel>
+          <textarea readOnly value={text} rows={10} className="w-full border rounded-lg px-3 py-2 text-sm font-mono resize-none" style={{ borderColor: C.line, background: C.bg, color: C.ink }} />
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={copyToClipboard} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border" style={{ borderColor: C.line, color: C.ink }}>
+            <Copy size={14} />{copied ? "Copied!" : "Copy Text"}
+          </button>
+          <a href={mailtoHref} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>
+            <Mail size={14} />Open in Email
+          </a>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity }) {
+  const [useExisting, setUseExisting] = useState(true);
+  const [leadId, setLeadId] = useState("");
+  const [leadSearch, setLeadSearch] = useState("");
+  const [f, setF] = useState({
+    companyName: "", contactName: "", contactEmail: "",
+    origin: "", destination: "", equipment: "Dry Van", commodity: "", weight: "",
+    pickupDate: fmt(addDays(TODAY, 1)), rateMin: "", rateMax: "", notes: "",
+  });
+  const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+
+  const matchingLeads = leadSearch.trim()
+    ? leads.filter((l) => l.companyName.toLowerCase().includes(leadSearch.trim().toLowerCase())).slice(0, 8)
+    : leads.slice(0, 8);
+
+  const selectedLead = leads.find((l) => l.id === leadId);
+
+  const suggestion = f.origin && f.destination ? computeSuggestedRate(quotes, f.origin, f.destination, f.equipment) : null;
+
+  const applyLead = (lead) => {
+    setLeadId(lead.id);
+    setLeadSearch(lead.companyName);
+    setF((p) => ({ ...p, companyName: lead.companyName, contactName: `${lead.contactFirst} ${lead.contactLast}`, contactEmail: lead.email }));
+  };
+
+  const applySuggestion = () => {
+    if (suggestion) setF((p) => ({ ...p, rateMin: String(suggestion.avgMin), rateMax: String(suggestion.avgMax) }));
+  };
+
+  const submit = () => {
+    if (!f.companyName || !f.origin || !f.destination || !f.rateMin || !f.rateMax) return;
+    const rateMin = Number(f.rateMin), rateMax = Number(f.rateMax);
+    const quote = {
+      id: "Q" + Date.now(), leadId: useExisting ? leadId || null : null,
+      companyName: f.companyName, contactName: f.contactName, contactEmail: f.contactEmail,
+      origin: f.origin, destination: f.destination, equipment: f.equipment,
+      commodity: f.commodity, weight: f.weight, pickupDate: f.pickupDate,
+      rateMin, rateMax, notes: f.notes, status: "Sent",
+      createdBy: myRep || "Team", createdDate: fmt(TODAY),
+    };
+    onCreate(quote);
+    if (quote.leadId) {
+      logActivity(quote.leadId, {
+        type: "Quote Follow-up",
+        notes: `Quoted ${quote.origin} → ${quote.destination} (${quote.equipment}): $${rateMin.toLocaleString()}–$${rateMax.toLocaleString()}`,
+        salesperson: quote.createdBy, outcome: "Sent Info", nextStep: "Follow up on quote",
+      }, fmt(addDays(TODAY, 3)));
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={560}>
+      <div className="px-5 py-4 border-b flex items-center justify-between sticky top-0 bg-white z-10" style={{ borderColor: C.line }}>
+        <h2 className="text-lg font-bold" style={{ color: C.ink }}>New Quote</h2>
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={18} /></button>
+      </div>
+      <div className="p-5 flex flex-col gap-3">
+        <div className="flex gap-2">
+          <button onClick={() => setUseExisting(true)} className="text-xs font-semibold px-3 py-1.5 rounded-lg border"
+            style={{ borderColor: useExisting ? C.green : C.line, background: useExisting ? C.greenTint : "transparent", color: useExisting ? C.greenDark : C.slate }}>
+            Existing Lead
+          </button>
+          <button onClick={() => { setUseExisting(false); setLeadId(""); }} className="text-xs font-semibold px-3 py-1.5 rounded-lg border"
+            style={{ borderColor: !useExisting ? C.green : C.line, background: !useExisting ? C.greenTint : "transparent", color: !useExisting ? C.greenDark : C.slate }}>
+            Not in CRM Yet
+          </button>
+        </div>
+
+        {useExisting ? (
+          <div className="relative">
+            <FieldLabel>Search Lead</FieldLabel>
+            <input value={leadSearch} onChange={(e) => { setLeadSearch(e.target.value); setLeadId(""); }} placeholder="Type company name…"
+              className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} />
+            {leadSearch && !leadId && (
+              <div className="border rounded-lg mt-1 max-h-40 overflow-y-auto" style={{ borderColor: C.line }}>
+                {matchingLeads.map((l) => (
+                  <div key={l.id} onClick={() => applyLead(l)} className="px-3 py-2 text-sm cursor-pointer hover:bg-gray-50" style={{ color: C.ink }}>
+                    {l.companyName} <span style={{ color: C.slate }}>· {l.contactFirst} {l.contactLast}</span>
+                  </div>
+                ))}
+                {matchingLeads.length === 0 && <div className="px-3 py-2 text-sm" style={{ color: C.slate }}>No matches.</div>}
+              </div>
+            )}
+            {selectedLead && <div className="text-xs mt-1" style={{ color: C.greenDark }}>✓ Linked to {selectedLead.companyName}</div>}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <div><FieldLabel>Company Name *</FieldLabel><input value={f.companyName} onChange={set("companyName")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+            <div><FieldLabel>Contact Name</FieldLabel><input value={f.contactName} onChange={set("contactName")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+            <div className="col-span-2"><FieldLabel>Contact Email</FieldLabel><input value={f.contactEmail} onChange={set("contactEmail")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2">
+          <div><FieldLabel>Origin *</FieldLabel><input value={f.origin} onChange={set("origin")} placeholder="Dallas, TX" className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Destination *</FieldLabel><input value={f.destination} onChange={set("destination")} placeholder="Atlanta, GA" className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Equipment</FieldLabel>
+            <select value={f.equipment} onChange={set("equipment")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>
+              {EQUIPMENT_OPTIONS.map((eq) => <option key={eq}>{eq}</option>)}
+            </select>
+          </div>
+          <div><FieldLabel>Pickup Date</FieldLabel><input type="date" value={f.pickupDate} onChange={set("pickupDate")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Commodity (optional)</FieldLabel><input value={f.commodity} onChange={set("commodity")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Weight (optional)</FieldLabel><input value={f.weight} onChange={set("weight")} placeholder="e.g. 38,000 lbs" className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+        </div>
+
+        {suggestion && (
+          <div className="rounded-lg px-3 py-2 text-sm flex items-center justify-between" style={{ background: C.greenTint, color: C.greenDark }}>
+            <span>Suggested rate (from {suggestion.count} past quote{suggestion.count !== 1 ? "s" : ""} on this lane): <strong>${suggestion.avgMin.toLocaleString()}–${suggestion.avgMax.toLocaleString()}</strong></span>
+            <button onClick={applySuggestion} className="text-xs font-bold underline shrink-0 ml-2">Use this</button>
+          </div>
+        )}
+        {f.origin && f.destination && !suggestion && (
+          <div className="text-xs" style={{ color: C.slate }}>No hay historial todavía para esta ruta — ingresa la tarifa manualmente.</div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2">
+          <div><FieldLabel>Rate Min *</FieldLabel><input type="number" value={f.rateMin} onChange={set("rateMin")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Rate Max *</FieldLabel><input type="number" value={f.rateMax} onChange={set("rateMax")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+        </div>
+        <div><FieldLabel>Notes (optional)</FieldLabel><textarea value={f.notes} onChange={set("notes")} rows={2} className="w-full border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} /></div>
+
+        <button onClick={submit} className="px-4 py-2 rounded-lg font-semibold text-sm self-start" style={{ background: C.green, color: C.charcoal }}>Generate Quote</button>
+      </div>
+    </Modal>
+  );
+}
+
+
 function CalendarView({ tasks, toggleTaskDone, setSelectedLeadId, repFilter, setRepFilter }) {
   const [monthOffset, setMonthOffset] = useState(0);
   const base = new Date(TODAY.getFullYear(), TODAY.getMonth() + monthOffset, 1);
