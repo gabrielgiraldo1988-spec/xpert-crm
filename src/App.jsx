@@ -323,12 +323,17 @@ function LoginScreen({ onLoggedIn }) {
     e.preventDefault();
     setError("");
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setBusy(false);
-    if (error) {
-      setError("Correo o contraseña incorrectos.");
-    } else {
-      onLoggedIn();
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setError("Correo o contraseña incorrectos.");
+      } else {
+        onLoggedIn();
+      }
+    } catch {
+      setError("No se pudo iniciar sesión. Revisa tu conexión e inténtalo de nuevo.");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -364,7 +369,9 @@ export default function App() {
   const [session, setSession] = useState(undefined); // undefined = checking, null = logged out, object = logged in
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    supabase.auth.getSession()
+      .then(({ data, error }) => setSession(error ? null : data.session))
+      .catch(() => setSession(null));
     const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => listener.subscription.unsubscribe();
   }, []);
@@ -391,6 +398,7 @@ function CRMApp({ session }) {
   const quotesRef = useRef(quotes);
   const persistQueueRef = useRef(Promise.resolve());
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [view, setView] = useState(() => EMAIL_TO_REP[session?.user?.email] ? "myday" : "dashboard");
   const [search, setSearch] = useState("");
   const [selectedLeadId, setSelectedLeadId] = useState(null);
@@ -435,20 +443,34 @@ function CRMApp({ session }) {
   };
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      try {
-        const { data, error } = await supabase
-          .from("crm_storage")
-          .select("value")
-          .eq("key", "xpert-crm-data")
-          .maybeSingle();
-        if (data && data.value) {
-          const parsed = JSON.parse(data.value);
+      const { data, error } = await supabase
+        .from("crm_storage")
+        .select("value")
+        .eq("key", "xpert-crm-data")
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        setLoadError("No se pudo cargar el CRM. Revisa tu conexión e inténtalo de nuevo.");
+        setLoading(false);
+        return;
+      }
+      if (data?.value) {
+        let parsed;
+        try {
+          parsed = JSON.parse(data.value);
+        } catch {
+          setLoadError("Los datos guardados del CRM no se pueden leer.");
+          setLoading(false);
+          return;
+        }
+        if (cancelled) return;
           const loadedLeads = parsed.leads || [];
           const loadedActivities = parsed.activities || [];
           const loadedTasks = parsed.tasks || [];
           const loadedNotes = parsed.notes || [];
-          const loadedQuotes = parsed.quotes || [];
+          const loadedQuotes = (parsed.quotes || []).map(normalizeQuote);
           leadsRef.current = loadedLeads;
           activitiesRef.current = loadedActivities;
           tasksRef.current = loadedTasks;
@@ -461,8 +483,7 @@ function CRMApp({ session }) {
           setQuotes(loadedQuotes);
           setLoading(false);
           return;
-        }
-      } catch (e) { /* no stored data yet */ }
+      }
       const seedLeads = genLeads();
       const seedActivities = genActivities(seedLeads);
       leadsRef.current = seedLeads;
@@ -477,9 +498,18 @@ function CRMApp({ session }) {
       setQuotes([]);
       setLoading(false);
       try {
-        await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities, tasks: [], notes: [], quotes: [] }) });
-      } catch (e) { /* storage best-effort */ }
-    })();
+        const { error: seedError } = await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities, tasks: [], notes: [], quotes: [] }) });
+        if (seedError && !cancelled) setToast("No se pudo guardar la información inicial. Revisa tu conexión.");
+      } catch {
+        if (!cancelled) setToast("No se pudo guardar la información inicial. Revisa tu conexión.");
+      }
+    })().catch(() => {
+      if (!cancelled) {
+        setLoadError("No se pudo cargar el CRM. Revisa tu conexión e inténtalo de nuevo.");
+        setLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
   }, []);
 
   const persist = useCallback(() => {
@@ -490,9 +520,25 @@ function CRMApp({ session }) {
       notes: notesRef.current,
       quotes: quotesRef.current,
     };
+    const save = async () => {
+      let lastError;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const { error } = await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify(snapshot) });
+          if (!error) return;
+          lastError = error;
+        } catch (error) {
+          lastError = error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+      setToast("No se pudo guardar, revisa tu conexión.");
+      setTimeout(() => setToast(null), 5000);
+      throw lastError;
+    };
     persistQueueRef.current = persistQueueRef.current
       .catch(() => {})
-      .then(() => supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify(snapshot) }))
+      .then(save)
       .catch(() => {});
     return persistQueueRef.current;
   }, []);
@@ -586,6 +632,9 @@ function CRMApp({ session }) {
 
   if (loading) {
     return <div className="h-screen w-full flex items-center justify-center" style={{ background: C.bg, color: C.slate }}>Loading CRM…</div>;
+  }
+  if (loadError) {
+    return <div className="h-screen w-full flex items-center justify-center p-6 text-center" style={{ background: C.bg, color: C.danger }}>{loadError}</div>;
   }
 
   const todayStr = fmt(TODAY);
@@ -702,6 +751,7 @@ function CRMApp({ session }) {
 
         <TaskBanner leads={leads} tasks={tasks} myRep={myRep} setView={setView} />
         <QuoteReviewBanner quotes={quotes} myRep={myRep} setView={setView} />
+        {toast && <div className="px-6 py-2.5 text-sm font-medium shrink-0" style={{ background: C.danger + "1a", color: C.danger, borderBottom: `1px solid ${C.line}` }}>{toast}</div>}
 
         <div className="flex-1 overflow-y-auto p-6">
           {view === "myday" && <MyDayView leads={leads} tasks={tasks} activities={activities} myRep={myRep} setSelectedLeadId={setSelectedLeadId} setView={setView} />}
@@ -1310,6 +1360,46 @@ function QuickLog({ lead, onDone, onCancel }) {
 /* ============================== QUOTES ============================== */
 const EQUIPMENT_OPTIONS = ["Dry Van", "Reefer", "Flatbed", "Multiple"];
 
+function normalizeQuote({ rate, rateMin, rateMax, ...quote }) {
+  const legacyRate = rateMin != null && rateMax != null ? Math.round((Number(rateMin) + Number(rateMax)) / 2) : null;
+  return { ...quote, rate: rate ?? legacyRate };
+}
+
+function buildTriumphUrl(origin, destination, equipment, pickupDate) {
+  const normalizeLocation = (value) => (value || "").trim().replace(/,/g, " ").replace(/\s+/g, " ");
+  const transportType = { "Dry Van": "VAN", Reefer: "REEFER", Flatbed: "FLATBED", Multiple: "VAN" }[equipment] || "VAN";
+  const params = [
+    ["originCityState", normalizeLocation(origin)],
+    ["destinationCityState", normalizeLocation(destination)],
+    ["transportType", transportType],
+  ];
+  if (pickupDate) params.push(["pickupDate", pickupDate]);
+  return `https://intelligence.triumph.io/rates?${params.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&")}`;
+}
+
+function RatePlatformButtons({ origin, destination, equipment, pickupDate }) {
+  const hasLane = Boolean(origin?.trim() && destination?.trim());
+  const triumphUrl = buildTriumphUrl(origin, destination, equipment, pickupDate);
+  const linkClass = "px-3 py-1.5 rounded-lg text-xs font-semibold border";
+  const linkStyle = { borderColor: C.line, color: C.ink };
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      <a href={triumphUrl} target="_blank" rel="noopener noreferrer" aria-disabled={!hasLane}
+        onClick={(e) => { if (!hasLane) e.preventDefault(); }} className={linkClass}
+        style={{ ...linkStyle, opacity: hasLane ? 1 : 0.5 }}>
+        Check Rate on Triumph
+      </a>
+      <a href="https://login.dat.com" target="_blank" rel="noopener noreferrer" className={linkClass} style={linkStyle}>
+        Open DAT RateView
+      </a>
+      <a href="https://app.truckstop.com" target="_blank" rel="noopener noreferrer" className={linkClass} style={linkStyle}>
+        Open Truckstop Rate Insights
+      </a>
+    </div>
+  );
+}
+
 function computeSuggestedRate(quotes, origin, destination, equipment) {
   const o = (origin || "").trim().toLowerCase();
   const d = (destination || "").trim().toLowerCase();
@@ -1317,39 +1407,46 @@ function computeSuggestedRate(quotes, origin, destination, equipment) {
     (q.origin || "").trim().toLowerCase() === o &&
     (q.destination || "").trim().toLowerCase() === d &&
     q.equipment === equipment &&
-    q.rateMin != null && q.rateMax != null
+    q.rate != null
   );
   if (matches.length === 0) return null;
-  const avgMin = Math.round(matches.reduce((s, q) => s + q.rateMin, 0) / matches.length);
-  const avgMax = Math.round(matches.reduce((s, q) => s + q.rateMax, 0) / matches.length);
-  return { avgMin, avgMax, count: matches.length };
+  const averageRate = Math.round(matches.reduce((s, q) => s + q.rate, 0) / matches.length);
+  return { averageRate, count: matches.length };
 }
 
 function buildQuoteText(q) {
-  const rateText = q.rateMin != null && q.rateMax != null
-    ? `$${q.rateMin.toLocaleString()} – $${q.rateMax.toLocaleString()}`
+  const rateText = q.rate != null
+    ? `$${q.rate.toLocaleString()}`
     : "[pending confirmation]";
 
-  return `Hi ${q.contactName || "there"},
+  return `Dear Team,
 
-Thank you for reaching out to Xpert Freight. Here's our quote for your shipment:
+We are pleased to provide you with the following quote:
 
 Lane: ${q.origin} → ${q.destination}
-Equipment: ${q.equipment}
-${q.commodity ? `Commodity: ${q.commodity}\n` : ""}${q.weight ? `Weight: ${q.weight}\n` : ""}Pickup: ${q.pickupDate || "TBD"}
-
 Rate: ${rateText}
+Truck Type: ${q.equipment}
+${q.pickupDate ? `Pickup: ${q.pickupDate}` : ""}
 
-${q.notes ? q.notes + "\n\n" : ""}Let us know if you'd like to move forward or if you have any questions — happy to help.
+Kindly provide your feedback and desired rate if possible.
 
-Best regards,
-${q.createdBy || "Xpert Freight"}
-Xpert Freight`;
+Please note the following conditions:
+- This quote does not include TWIC Card/TSA/Bonded services.
+- The rate is valid for 4 days from the date of this email.
+- Tanker Endorsement/Hazmat is not included.
+- A standard allowance of 2 hours is provided for loading and unloading. Any additional time will be charged at $50 per hour.
+- A cancellation fee may apply if the shipment is canceled on the same day as the scheduled pickup.
+
+If you have any questions or need further assistance, please do not hesitate to contact us.
+
+Thank you for considering our services.
+Gracias, Thank you!`;
 }
 
 function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActivity, myRep, setSelectedLeadId }) {
   const [showNew, setShowNew] = useState(false);
-  const [viewingQuote, setViewingQuote] = useState(null);
+  const [viewingQuoteId, setViewingQuoteId] = useState(null);
+  const viewingQuote = quotes.find((q) => q.id === viewingQuoteId) || null;
   const scoped = myRep ? quotes.filter((q) => q.createdBy === myRep) : quotes;
   const sorted = [...scoped].sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
 
@@ -1375,12 +1472,12 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActi
           </thead>
           <tbody>
             {sorted.map((q) => (
-              <tr key={q.id} onClick={() => setViewingQuote(q)} className="border-t cursor-pointer hover:bg-gray-50" style={{ borderColor: C.line }}>
+              <tr key={q.id} onClick={() => setViewingQuoteId(q.id)} className="border-t cursor-pointer hover:bg-gray-50" style={{ borderColor: C.line }}>
                 <td className="px-4 py-2.5" style={{ color: C.slate }}>{q.createdDate}</td>
                 <td className="px-4 py-2.5 font-medium" style={{ color: C.ink }}>{q.companyName}</td>
                 <td className="px-4 py-2.5" style={{ color: C.ink }}>{q.origin} → {q.destination}</td>
                 <td className="px-4 py-2.5" style={{ color: C.slate }}>{q.equipment}</td>
-                <td className="px-4 py-2.5" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>${q.rateMin?.toLocaleString()}–${q.rateMax?.toLocaleString()}</td>
+                <td className="px-4 py-2.5" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>{q.rate != null ? `$${q.rate.toLocaleString()}` : "Pending confirmation"}</td>
                 <td className="px-4 py-2.5" style={{ color: C.slate }}>{q.createdBy}</td>
                 <td className="px-4 py-2.5">
                   <span className="text-xs font-semibold rounded-full px-2 py-0.5" style={{ background: statusColor[q.status] + "1a", color: statusColor[q.status] }}>{q.status}</span>
@@ -1394,10 +1491,10 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActi
 
       {showNew && (
         <NewQuoteModal leads={leads} quotes={quotes} myRep={myRep} onClose={() => setShowNew(false)}
-          onCreate={(q) => { addQuote(q); setShowNew(false); setViewingQuote(q); }} logActivity={logActivity} />
+          onCreate={(q) => { addQuote(q); setShowNew(false); setViewingQuoteId(q.id); }} logActivity={logActivity} />
       )}
       {viewingQuote && (
-        <QuoteDetailModal quote={viewingQuote} onClose={() => setViewingQuote(null)} updateQuote={updateQuote} deleteQuote={deleteQuote} setSelectedLeadId={setSelectedLeadId} />
+        <QuoteDetailModal quote={viewingQuote} onClose={() => setViewingQuoteId(null)} updateQuote={updateQuote} deleteQuote={deleteQuote} setSelectedLeadId={setSelectedLeadId} />
       )}
     </div>
   );
@@ -1405,21 +1502,27 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActi
 
 function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelectedLeadId }) {
   const [copied, setCopied] = useState(false);
-  const [rateMin, setRateMin] = useState(quote.rateMin == null ? "" : String(quote.rateMin));
-  const [rateMax, setRateMax] = useState(quote.rateMax == null ? "" : String(quote.rateMax));
+  const [copyError, setCopyError] = useState("");
+  const [rate, setRate] = useState(quote.rate == null ? "" : String(quote.rate));
   const text = buildQuoteText(quote);
   const mailtoHref = `mailto:${quote.contactEmail || ""}?subject=${encodeURIComponent("Quote — " + quote.origin + " to " + quote.destination)}&body=${encodeURIComponent(text)}`;
 
   const confirmAndMarkSent = () => {
-    const min = Number(rateMin);
-    const max = Number(rateMax);
-    if (!rateMin.trim() || !rateMax.trim() || !Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= 0) return;
-    updateQuote(quote.id, { rateMin: min, rateMax: max, status: "Sent" });
+    const numericRate = Number(rate);
+    if (!rate.trim() || !Number.isFinite(numericRate) || numericRate <= 0) return;
+    updateQuote(quote.id, { rate: numericRate, status: "Sent" });
     onClose();
   };
 
   const copyToClipboard = () => {
-    navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    setCopyError("");
+    if (!navigator.clipboard?.writeText) {
+      setCopyError("Could not access the clipboard.");
+      return;
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })
+      .catch(() => setCopyError("Could not copy the quote text."));
   };
 
   return (
@@ -1435,15 +1538,10 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
           {quote.status === "Pending Review" ? (
             <div>
               <FieldLabel>Rate</FieldLabel>
-              <div className="flex items-center gap-1">
-                <input type="number" min="0" value={rateMin} onChange={(e) => setRateMin(e.target.value)} placeholder="Min"
+              <input type="number" min="0" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="Rate"
                   className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} />
-                <span style={{ color: C.slate }}>–</span>
-                <input type="number" min="0" value={rateMax} onChange={(e) => setRateMax(e.target.value)} placeholder="Max"
-                  className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} />
-              </div>
             </div>
-          ) : <Kv k="Rate" v={`$${quote.rateMin?.toLocaleString()}–$${quote.rateMax?.toLocaleString()}`} />}
+          ) : <Kv k="Rate" v={quote.rate != null ? `$${quote.rate.toLocaleString()}` : "Pending confirmation"} />}
         </div>
 
         {quote.status === "Pending Review" && (
@@ -1451,6 +1549,8 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
             This quote was created automatically from an email. Complete and confirm the rate before marking it as sent.
           </div>
         )}
+
+        <RatePlatformButtons origin={quote.origin} destination={quote.destination} equipment={quote.equipment} pickupDate={quote.pickupDate} />
 
         {quote.leadId && (
           <button onClick={() => { setSelectedLeadId(quote.leadId); onClose(); }} className="text-xs font-semibold text-left" style={{ color: C.greenDark }}>
@@ -1472,9 +1572,9 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
         </div>
 
         {quote.status === "Pending Review" && (
-          <button onClick={confirmAndMarkSent} disabled={!rateMin.trim() || !rateMax.trim()}
+          <button onClick={confirmAndMarkSent} disabled={!rate.trim()}
             className="px-3 py-2 rounded-lg text-sm font-semibold self-start"
-            style={{ background: C.green, color: C.charcoal, opacity: !rateMin.trim() || !rateMax.trim() ? 0.5 : 1 }}>
+            style={{ background: C.green, color: C.charcoal, opacity: !rate.trim() ? 0.5 : 1 }}>
             Confirm & Mark as Sent
           </button>
         )}
@@ -1492,6 +1592,7 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
             <Mail size={14} />Open in Email
           </a>
         </div>
+        {copyError && <div className="text-xs font-medium" style={{ color: C.danger }}>{copyError}</div>}
 
         <button onClick={() => {
           if (confirm("Delete this quote? This can't be undone.")) {
@@ -1513,7 +1614,7 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
   const [f, setF] = useState({
     companyName: "", contactName: "", contactEmail: "",
     origin: "", destination: "", equipment: "Dry Van", commodity: "", weight: "",
-    pickupDate: fmt(addDays(TODAY, 1)), rateMin: "", rateMax: "", notes: "",
+    pickupDate: fmt(addDays(TODAY, 1)), rate: "", notes: "",
   });
   const [zipLoading, setZipLoading] = useState({ origin: false, destination: false });
   const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
@@ -1555,37 +1656,25 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
   };
 
   const applySuggestion = () => {
-    if (suggestion) setF((p) => ({ ...p, rateMin: String(suggestion.avgMin), rateMax: String(suggestion.avgMax) }));
+    if (suggestion) setF((p) => ({ ...p, rate: String(suggestion.averageRate) }));
   };
 
-  const triumphUrl = (() => {
-    const normalizeLocation = (value) => value.trim().replace(/,/g, " ").replace(/\s+/g, " ");
-    const equipment = { "Dry Van": "VAN", Reefer: "REEFER", Flatbed: "FLATBED", Multiple: "VAN" }[f.equipment] || "VAN";
-    const params = [
-      ["originCityState", normalizeLocation(f.origin)],
-      ["destinationCityState", normalizeLocation(f.destination)],
-      ["transportType", equipment],
-    ];
-    if (f.pickupDate) params.push(["pickupDate", f.pickupDate]);
-    return `https://intelligence.triumph.io/rates?${params.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&")}`;
-  })();
-
   const submit = () => {
-    if (!f.companyName || !f.origin || !f.destination || !f.rateMin || !f.rateMax) return;
-    const rateMin = Number(f.rateMin), rateMax = Number(f.rateMax);
+    if (!f.companyName || !f.origin || !f.destination || !f.rate) return;
+    const rate = Number(f.rate);
     const quote = {
       id: "Q" + Date.now(), leadId: useExisting ? leadId || null : null,
       companyName: f.companyName, contactName: f.contactName, contactEmail: f.contactEmail,
       origin: f.origin, destination: f.destination, equipment: f.equipment,
       commodity: f.commodity, weight: f.weight, pickupDate: f.pickupDate,
-      rateMin, rateMax, notes: f.notes, status: "Sent",
+      rate, notes: f.notes, status: "Sent",
       createdBy: myRep || "Team", createdDate: fmt(TODAY),
     };
     onCreate(quote);
     if (quote.leadId) {
       logActivity(quote.leadId, {
         type: "Quote Follow-up",
-        notes: `Quoted ${quote.origin} → ${quote.destination} (${quote.equipment}): $${rateMin.toLocaleString()}–$${rateMax.toLocaleString()}`,
+        notes: `Quoted ${quote.origin} → ${quote.destination} (${quote.equipment}): $${rate.toLocaleString()}`,
         salesperson: quote.createdBy, outcome: "Sent Info", nextStep: "Follow up on quote",
       }, fmt(addDays(TODAY, 3)));
     }
@@ -1649,35 +1738,17 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
 
         {suggestion && (
           <div className="rounded-lg px-3 py-2 text-sm flex items-center justify-between" style={{ background: C.greenTint, color: C.greenDark }}>
-            <span>Suggested rate (from {suggestion.count} past quote{suggestion.count !== 1 ? "s" : ""} on this lane): <strong>${suggestion.avgMin.toLocaleString()}–${suggestion.avgMax.toLocaleString()}</strong></span>
+            <span>Suggested rate (from {suggestion.count} past quote{suggestion.count !== 1 ? "s" : ""} on this lane): <strong>${suggestion.averageRate.toLocaleString()}</strong></span>
             <button onClick={applySuggestion} className="text-xs font-bold underline shrink-0 ml-2">Use this</button>
           </div>
         )}
         {f.origin && f.destination && !suggestion && (
           <div className="text-xs" style={{ color: C.slate }}>No hay historial todavía para esta ruta — ingresa la tarifa manualmente.</div>
         )}
-        <div className="flex flex-wrap gap-2">
-          <a href={triumphUrl} target="_blank" rel="noopener noreferrer" aria-disabled={!f.origin.trim() || !f.destination.trim()}
-            onClick={(e) => { if (!f.origin.trim() || !f.destination.trim()) e.preventDefault(); }}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
-            style={{ borderColor: C.line, color: C.ink, opacity: !f.origin.trim() || !f.destination.trim() ? 0.5 : 1 }}>
-            Check Rate on Triumph
-          </a>
-          <button type="button" onClick={() => window.open("https://www.dat.com/iq", "_blank", "noopener,noreferrer")}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
-            style={{ borderColor: C.line, color: C.ink }}>
-            Open DAT RateView
-          </button>
-          <button type="button" onClick={() => window.open("https://truckstop.com/product/rate-insights/", "_blank", "noopener,noreferrer")}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
-            style={{ borderColor: C.line, color: C.ink }}>
-            Open Truckstop Rate Insights
-          </button>
-        </div>
+        <RatePlatformButtons origin={f.origin} destination={f.destination} equipment={f.equipment} pickupDate={f.pickupDate} />
 
         <div className="grid grid-cols-2 gap-2">
-          <div><FieldLabel>Rate Min *</FieldLabel><input type="number" value={f.rateMin} onChange={set("rateMin")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
-          <div><FieldLabel>Rate Max *</FieldLabel><input type="number" value={f.rateMax} onChange={set("rateMax")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Rate *</FieldLabel><input type="number" min="0" value={f.rate} onChange={set("rate")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
         </div>
         <div><FieldLabel>Notes (optional)</FieldLabel><textarea value={f.notes} onChange={set("notes")} rows={2} className="w-full border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} /></div>
 

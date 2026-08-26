@@ -53,6 +53,7 @@ ${emailText}`;
       messages: [{ role: "user", content: prompt }],
     }),
   });
+  if (!res.ok) throw new Error(`Anthropic request failed with status ${res.status}`);
   const data = await res.json();
   const text = data?.content?.[0]?.text || "{}";
   const cleaned = text.replace(/```json|```/g, "").trim();
@@ -109,16 +110,19 @@ export default async function handler(req, res) {
       bodyText = fullEmail?.data?.text || fullEmail?.data?.html || "";
     } catch (fetchErr) {
       console.error("Failed to fetch full email content:", fetchErr);
+      return res.status(500).json({ error: "Could not retrieve the email content" });
     }
+    if (!bodyText.trim()) return res.status(400).json({ error: "Email has no text content to process" });
 
     const extracted = await extractQuoteDetails(bodyText, subject);
 
     const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-    const { data: stored } = await supabase
+    const { data: stored, error: selectError } = await supabase
       .from("crm_storage")
       .select("value")
       .eq("key", "xpert-crm-data")
       .maybeSingle();
+    if (selectError) throw new Error(`Supabase select failed: ${selectError.message}`);
 
     const parsed = stored?.value ? JSON.parse(stored.value) : { leads: [], activities: [], tasks: [], notes: [], quotes: [] };
     const leads = parsed.leads || [];
@@ -147,8 +151,7 @@ export default async function handler(req, res) {
       commodity: extracted.commodity || "",
       weight: extracted.weight || "",
       pickupDate: extracted.pickupDate || null,
-      rateMin: null,
-      rateMax: null,
+      rate: null,
       notes: `Auto-created from forwarded email: "${subject}"`,
       status: "Pending Review",
       createdBy: createdBy || "Unassigned",
@@ -156,15 +159,15 @@ export default async function handler(req, res) {
     };
 
     const nextQuotes = [newQuote, ...(parsed.quotes || [])];
-    await supabase.from("crm_storage").upsert({
+    const { error: upsertError } = await supabase.from("crm_storage").upsert({
       key: "xpert-crm-data",
       value: JSON.stringify({ ...parsed, quotes: nextQuotes }),
     });
+    if (upsertError) throw new Error(`Supabase upsert failed: ${upsertError.message}`);
 
     return res.status(200).json({ created: true, quoteId: newQuote.id });
   } catch (e) {
     console.error(e);
-    // Still return 200 so Resend doesn't retry indefinitely on our internal errors.
-    return res.status(200).json({ error: String(e) });
+    return res.status(500).json({ error: String(e) });
   }
 }
