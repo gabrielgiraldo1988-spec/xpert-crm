@@ -63,6 +63,7 @@ const SERVICES = ["Dry Van", "Reefer", "Flatbed", "FTL", "LTL", "Cross-Border", 
 const SOURCES = ["Cold Call", "Cold Email", "LinkedIn", "Referral", "Website",
   "Logistics Conference", "Existing Customer", "DAT", "Truckstop", "Social Media"];
 const PRIORITIES = ["Hot", "Warm", "Cold"];
+const AGENCIES = ["LGI", "ALG"];
 const PRIORITY_COLOR = { Hot: C.hot, Warm: C.warm, Cold: C.cold };
 const REPS = ["Felipe Velez", "Manuela Posada"];
 const EMAIL_TO_REP = { "fvelez@lgiinc.com": "Felipe Velez", "mposada@lgiinc.com": "Manuela Posada" };
@@ -394,25 +395,28 @@ function CRMApp({ session }) {
   const [tasks, setTasks] = useState([]);
   const [notes, setNotes] = useState([]);
   const [quotes, setQuotes] = useState([]);
+  const [carriers, setCarriers] = useState([]);
   const leadsRef = useRef(leads);
   const activitiesRef = useRef(activities);
   const tasksRef = useRef(tasks);
   const notesRef = useRef(notes);
   const quotesRef = useRef(quotes);
+  const carriersRef = useRef(carriers);
   const persistQueueRef = useRef(Promise.resolve());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const role = EMAIL_TO_ROLE[session?.user?.email] || null;
-  const [view, setView] = useState(() => role === "ops" ? "pending-quotes" : EMAIL_TO_REP[session?.user?.email] ? "myday" : "dashboard");
+  const sessionEmail = session?.user?.email?.trim().toLowerCase() || "";
+  const role = EMAIL_TO_ROLE[sessionEmail] || null;
+  const [view, setView] = useState(() => role === "ops" ? "pending-quotes" : EMAIL_TO_REP[sessionEmail] ? "myday" : "dashboard");
   const [search, setSearch] = useState("");
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [showNewLead, setShowNewLead] = useState(false);
   const [toast, setToast] = useState(null);
-  const [leadFilters, setLeadFilters] = useState({ rep: "All", stage: "All", source: "All", priority: "All" });
+  const [leadFilters, setLeadFilters] = useState({ rep: "All", stage: "All", source: "All", priority: "All", agency: "All" });
   const [pipelineRep, setPipelineRep] = useState("All");
   const [activityRep, setActivityRep] = useState("All");
   const [calendarRep, setCalendarRep] = useState("All");
-  const myRep = EMAIL_TO_REP[session?.user?.email] || null;
+  const myRep = EMAIL_TO_REP[sessionEmail] || null;
   const [defaultsApplied, setDefaultsApplied] = useState(false);
   useEffect(() => {
     if (role === "ops" && view !== "pending-quotes" && view !== "quotes") setView("pending-quotes");
@@ -473,21 +477,32 @@ function CRMApp({ session }) {
           return;
         }
         if (cancelled) return;
-          const loadedLeads = parsed.leads || [];
+          const loadedLeads = (parsed.leads || []).map((lead) => ({ agency: "LGI", ...lead }));
           const loadedActivities = parsed.activities || [];
           const loadedTasks = parsed.tasks || [];
           const loadedNotes = parsed.notes || [];
-          const loadedQuotes = (parsed.quotes || []).map(normalizeQuote);
+          const loadedQuotes = (parsed.quotes || []).map((quote) => ({
+            carrierCost: null,
+            lostReason: null,
+            needsApproval: false,
+            contactPhone: "",
+            specialInstructions: "",
+            specialServices: "",
+            ...normalizeQuote(quote),
+          }));
+          const loadedCarriers = parsed.carriers || [];
           leadsRef.current = loadedLeads;
           activitiesRef.current = loadedActivities;
           tasksRef.current = loadedTasks;
           notesRef.current = loadedNotes;
           quotesRef.current = loadedQuotes;
+          carriersRef.current = loadedCarriers;
           setLeads(loadedLeads);
           setActivities(loadedActivities);
           setTasks(loadedTasks);
           setNotes(loadedNotes);
           setQuotes(loadedQuotes);
+          setCarriers(loadedCarriers);
           setLoading(false);
           return;
       }
@@ -498,14 +513,16 @@ function CRMApp({ session }) {
       tasksRef.current = [];
       notesRef.current = [];
       quotesRef.current = [];
+      carriersRef.current = [];
       setLeads(seedLeads);
       setActivities(seedActivities);
       setTasks([]);
       setNotes([]);
       setQuotes([]);
+      setCarriers([]);
       setLoading(false);
       try {
-        const { error: seedError } = await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities, tasks: [], notes: [], quotes: [] }) });
+        const { error: seedError } = await supabase.from("crm_storage").upsert({ key: "xpert-crm-data", value: JSON.stringify({ leads: seedLeads, activities: seedActivities, tasks: [], notes: [], quotes: [], carriers: [] }) });
         if (seedError && !cancelled) setToast("No se pudo guardar la información inicial. Revisa tu conexión.");
       } catch {
         if (!cancelled) setToast("No se pudo guardar la información inicial. Revisa tu conexión.");
@@ -526,6 +543,7 @@ function CRMApp({ session }) {
       tasks: tasksRef.current,
       notes: notesRef.current,
       quotes: quotesRef.current,
+      carriers: carriersRef.current,
     };
     const save = async () => {
       let lastError;
@@ -579,18 +597,20 @@ function CRMApp({ session }) {
     persist();
   }, [persist]);
 
-  const logActivity = useCallback((leadId, act, dueDate) => {
+  const logActivity = useCallback((leadId, act, dueDate, dueDates) => {
     const lead = leadsRef.current.find((l) => l.id === leadId);
     const nextLeads = leadsRef.current.map((l) => l.id === leadId ? {
       ...l, lastActivityDate: fmt(TODAY),
-      nextFollowupDate: dueDate || l.nextFollowupDate,
+      nextFollowupDate: dueDates?.[0] || dueDate || l.nextFollowupDate,
     } : l);
     const nextActivities = [{ id: "A" + Date.now(), leadId, date: fmt(TODAY), ...act }, ...activitiesRef.current];
-    const nextTasks = dueDate ? [{
-      id: "T" + Date.now(), leadId, companyName: lead ? lead.companyName : "",
+    const dates = Array.isArray(dueDates) ? dueDates : dueDate ? [dueDate] : [];
+    const newTasks = dates.map((taskDueDate, index) => ({
+      id: `T${Date.now()}-${index}`, leadId, companyName: lead ? lead.companyName : "",
       assignedTo: lead ? lead.assignedTo : "", type: act.type, notes: act.notes,
-      dueDate, done: false, createdDate: fmt(TODAY),
-    }, ...tasksRef.current] : tasksRef.current;
+      dueDate: taskDueDate, done: false, createdDate: fmt(TODAY),
+    }));
+    const nextTasks = newTasks.length ? [...newTasks, ...tasksRef.current] : tasksRef.current;
     leadsRef.current = nextLeads;
     activitiesRef.current = nextActivities;
     tasksRef.current = nextTasks;
@@ -622,9 +642,18 @@ function CRMApp({ session }) {
   }, [persist]);
 
   const updateQuote = useCallback((id, patch) => {
-    const next = quotesRef.current.map((q) => q.id === id ? { ...q, ...patch } : q);
+    const previous = quotesRef.current.find((q) => q.id === id);
+    const respondedAt = previous?.respondedAt || (previous?.status === "Pending Review" && patch.status && patch.status !== "Pending Review" ? new Date().toISOString() : null);
+    const next = quotesRef.current.map((q) => q.id === id ? { ...q, ...patch, ...(respondedAt ? { respondedAt } : {}) } : q);
     quotesRef.current = next;
     setQuotes(next);
+    persist();
+  }, [persist]);
+
+  const addCarrier = useCallback((carrier) => {
+    const next = [carrier, ...carriersRef.current];
+    carriersRef.current = next;
+    setCarriers(next);
     persist();
   }, [persist]);
 
@@ -659,13 +688,14 @@ function CRMApp({ session }) {
     { key: "leads", label: "Leads", icon: Users },
     { key: "pipeline", label: "Pipeline", icon: KanbanSquare },
     { key: "quotes", label: "Quotes", icon: FileText },
+    { key: "carriers", label: "Carriers", icon: Truck },
     { key: "activities", label: "Activities", icon: Phone, badge: overdueCount + dueTodayCount },
     { key: "calendar", label: "Calendar", icon: Calendar, badge: overdueCount + dueTodayCount },
     { key: "customers", label: "Customers", icon: UserCheck, badge: customersCount },
     { key: "reports", label: "Reports", icon: BarChart3 },
     { key: "team", label: "Sales Team", icon: UsersRound },
   ];
-  const NAV = role === "ops" ? allNav.filter((item) => item.key === "pending-quotes" || item.key === "quotes") : allNav;
+  const NAV = role === "ops" ? allNav.filter((item) => ["pending-quotes", "quotes", "carriers"].includes(item.key)) : allNav;
 
   return (
     <div data-theme={theme} className="flex h-screen w-full overflow-hidden" style={{ background: C.bg, fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif" }}>
@@ -766,11 +796,12 @@ function CRMApp({ session }) {
           {view === "dashboard" && <Dashboard leads={leads} activities={activities} setView={setView} setSelectedLeadId={setSelectedLeadId} />}
           {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} addLeadsBulk={addLeadsBulk} />}
           {view === "pipeline" && <PipelineView leads={leads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} repFilter={pipelineRep} setRepFilter={setPipelineRep} />}
-          {view === "quotes" && <QuotesView leads={leads} quotes={quotes} addQuote={addQuote} updateQuote={updateQuote} deleteQuote={deleteQuote} logActivity={logActivity} myRep={myRep} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "quotes" && <QuotesView leads={leads} quotes={quotes} addQuote={addQuote} updateQuote={updateQuote} deleteQuote={deleteQuote} addLead={addLead} logActivity={logActivity} myRep={myRep} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "carriers" && <CarriersView carriers={carriers} addCarrier={addCarrier} />}
           {view === "activities" && <ActivitiesView leads={leads} activities={activities} logActivity={logActivity} setSelectedLeadId={setSelectedLeadId} repFilter={activityRep} setRepFilter={setActivityRep} />}
           {view === "calendar" && <CalendarView tasks={tasks} toggleTaskDone={toggleTaskDone} setSelectedLeadId={setSelectedLeadId} repFilter={calendarRep} setRepFilter={setCalendarRep} />}
           {view === "customers" && <CustomersView leads={leads} setSelectedLeadId={setSelectedLeadId} />}
-          {view === "reports" && <ReportsView leads={leads} />}
+          {view === "reports" && <ReportsView leads={leads} quotes={quotes} />}
           {view === "team" && <TeamView leads={leads} activities={activities} setSelectedLeadId={setSelectedLeadId} />}
         </div>
       </div>
@@ -882,6 +913,7 @@ function PendingQuotesDashboard({ quotes, updateQuote, deleteQuote, setSelectedL
                     <div className="font-bold truncate" style={{ color: C.ink }}>{quote.companyName}</div>
                     <div className="text-sm mt-1" style={{ color: C.slate }}>{quote.origin || "Origin missing"} → {quote.destination || "Destination missing"}</div>
                     <div className="text-xs mt-1" style={{ color: C.slate }}>{quote.equipment}</div>
+                    {quote.needsApproval && <div className="inline-flex items-center gap-1 text-xs font-semibold mt-2" style={{ color: C.warm }}><AlertTriangle size={12} />Needs approval</div>}
                   </div>
                   <div className="flex items-center gap-1 text-sm font-bold rounded-lg px-2 py-1 shrink-0" style={style}>
                     {isUrgent && <AlertTriangle size={14} />}
@@ -1078,7 +1110,7 @@ function Dashboard({ leads, activities, setView, setSelectedLeadId }) {
 /* ============================== CSV IMPORT / EXPORT ============================== */
 const CSV_COLUMNS = [
   "companyName", "contactFirst", "contactLast", "jobTitle", "email", "phone",
-  "city", "state", "source", "priority", "assignedTo", "servicesInterest", "stage",
+  "city", "state", "agency", "source", "priority", "assignedTo", "servicesInterest", "stage",
 ];
 
 function csvEscape(value) {
@@ -1151,7 +1183,7 @@ function csvRowsToLeads(rows) {
       companySize: "11-50", trucks: 0, employees: 0, website: "", companyLinkedin: "", city: get("city"), state: get("state"),
       timeZone: "CT", contactFirst, contactLast: get("contactLast"), jobTitle: get("jobTitle") || "Operations Manager",
       department: "Operations", email: get("email"), phone: get("phone"), mobile: get("phone"), linkedin: "",
-      source, priority, score, stage, assignedTo, servicesInterest,
+      agency: get("agency") === "ALG" ? "ALG" : "LGI", source, priority, score, stage, assignedTo, servicesInterest,
       originStates: "", destinationStates: "", mainLanes: "", equipmentType: "Dry Van",
       avgWeeklyLoads: 0, avgMonthlyLoads: 0, avgWeight: "", commodity: "", hazmat: false, tempControlled: false,
       appointmentRequired: false, currentProvider: "Unknown", estMonthlyRevenue: 0, estAnnualRevenue: 0,
@@ -1175,7 +1207,7 @@ function FilterSelect({ value, onChange, options, label }) {
 
 /* ============================== LEADS ============================== */
 function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFilters, addLeadsBulk }) {
-  const { rep, stage, source, priority } = filters;
+  const { rep, stage, source, priority, agency } = filters;
   const setField = (key) => (val) => setFilters((prev) => ({ ...prev, [key]: val }));
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState("");
@@ -1184,7 +1216,7 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
     const q = search.trim().toLowerCase();
     const matchesQ = !q || [l.companyName, l.contactFirst, l.contactLast, l.phone, l.email, l.state].join(" ").toLowerCase().includes(q);
     return matchesQ && (rep === "All" || l.assignedTo === rep) && (stage === "All" || l.stage === stage) &&
-      (source === "All" || l.source === source) && (priority === "All" || l.priority === priority);
+      (source === "All" || l.source === source) && (priority === "All" || l.priority === priority) && (agency === "All" || l.agency === agency);
   });
 
   const handleExport = () => {
@@ -1221,6 +1253,7 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
           <FilterSelect value={stage} onChange={setField("stage")} options={STAGES} label="Stage" />
           <FilterSelect value={source} onChange={setField("source")} options={SOURCES} label="Source" />
           <FilterSelect value={priority} onChange={setField("priority")} options={PRIORITIES} label="Priority" />
+          <FilterSelect value={agency} onChange={setField("agency")} options={AGENCIES} label="Agency" />
           <div className="w-px h-6" style={{ background: C.line }} />
           <button onClick={handleExport} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border" style={{ borderColor: C.line, color: C.ink }}>Export CSV</button>
           <button onClick={handleTemplate} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border" style={{ borderColor: C.line, color: C.ink }}>Template</button>
@@ -1234,7 +1267,7 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: C.bg }} className="text-left">
-              {["Company", "Contact", "State", "Source", "Priority", "Stage", "Rep", "Est. Rev/mo", "Next Follow-up"].map(h => (
+              {["Company", "Contact", "State", "Agency", "Source", "Priority", "Stage", "Rep", "Est. Rev/mo", "Next Follow-up"].map(h => (
                 <th key={h} className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide" style={{ color: C.slate }}>{h}</th>
               ))}
             </tr>
@@ -1255,6 +1288,7 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
                   </td>
                   <td className="px-4 py-2.5" style={{ color: C.ink }}>{l.contactFirst} {l.contactLast}<div className="text-xs" style={{ color: C.slate }}>{l.jobTitle}</div></td>
                   <td className="px-4 py-2.5" style={{ color: C.ink }}>{l.state}</td>
+                  <td className="px-4 py-2.5" style={{ color: C.ink }}>{l.agency || "LGI"}</td>
                   <td className="px-4 py-2.5" style={{ color: C.slate }}>{l.source}</td>
                   <td className="px-4 py-2.5"><PriorityBadge p={l.priority} /></td>
                   <td className="px-4 py-2.5"><StagePill stage={l.stage} /></td>
@@ -1430,7 +1464,7 @@ function QuickLog({ lead, onDone, onCancel }) {
 }
 
 /* ============================== QUOTES ============================== */
-const EQUIPMENT_OPTIONS = ["Dry Van", "Reefer", "Flatbed", "Multiple"];
+const EQUIPMENT_OPTIONS = ["Dry Van", "Reefer", "Flatbed", "Multiple", "Sprinter Van", "Box Truck", "Hotshot Flatbed", "Conestoga"];
 
 function normalizeQuote({ rate, rateMin, rateMax, ...quote }) {
   const legacyRate = rateMin != null && rateMax != null ? Math.round((Number(rateMin) + Number(rateMax)) / 2) : null;
@@ -1439,7 +1473,7 @@ function normalizeQuote({ rate, rateMin, rateMax, ...quote }) {
 
 function buildTriumphUrl(origin, destination, equipment, pickupDate) {
   const normalizeLocation = (value) => (value || "").trim().replace(/,/g, " ").replace(/\s+/g, " ");
-  const transportType = { "Dry Van": "VAN", Reefer: "REEFER", Flatbed: "FLATBED", Multiple: "VAN" }[equipment] || "VAN";
+  const transportType = { "Dry Van": "VAN", "Sprinter Van": "VAN", "Box Truck": "VAN", Multiple: "VAN", Reefer: "REEFER", Flatbed: "FLATBED", Conestoga: "FLATBED", "Hotshot Flatbed": "HOTSHOT" }[equipment] || "VAN";
   const params = [
     ["originCityState", normalizeLocation(origin)],
     ["destinationCityState", normalizeLocation(destination)],
@@ -1515,11 +1549,12 @@ Thank you for considering our services.
 Gracias, Thank you!`;
 }
 
-function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActivity, myRep, setSelectedLeadId }) {
+function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, addLead, logActivity, myRep, setSelectedLeadId }) {
   const [showNew, setShowNew] = useState(false);
   const [viewingQuoteId, setViewingQuoteId] = useState(null);
+  const [agency, setAgency] = useState("All");
   const viewingQuote = quotes.find((q) => q.id === viewingQuoteId) || null;
-  const scoped = myRep ? quotes.filter((q) => q.createdBy === myRep) : quotes;
+  const scoped = quotes.filter((q) => (!myRep || q.createdBy === myRep) && (agency === "All" || q.agency === agency));
   const sorted = [...scoped].sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate));
 
   const statusColor = { Sent: C.slate, Won: C.green, Lost: C.danger, "Pending Review": C.warm };
@@ -1531,13 +1566,14 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActi
         <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>
           <Plus size={16} /> New Quote
         </button>
+        <select value={agency} onChange={(e) => setAgency(e.target.value)} className="text-sm border rounded-lg px-2.5 py-1.5" style={{ borderColor: C.line }}><option value="All">Agency: All</option>{AGENCIES.map((item) => <option key={item}>{item}</option>)}</select>
       </div>
 
       <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: C.line }}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: C.bg }} className="text-left">
-              {["Date", "Company", "Lane", "Equipment", "Rate", "Rep", "Status"].map(h => (
+              {["Date", "Company", "Lane", "Agency", "Equipment", "Rate", "Margin", "Approval", "Rep", "Status"].map(h => (
                 <th key={h} className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide" style={{ color: C.slate }}>{h}</th>
               ))}
             </tr>
@@ -1548,8 +1584,11 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActi
                 <td className="px-4 py-2.5" style={{ color: C.slate }}>{q.createdDate}</td>
                 <td className="px-4 py-2.5 font-medium" style={{ color: C.ink }}>{q.companyName}</td>
                 <td className="px-4 py-2.5" style={{ color: C.ink }}>{q.origin} → {q.destination}</td>
+                <td className="px-4 py-2.5" style={{ color: C.ink }}>{q.agency || "LGI"}</td>
                 <td className="px-4 py-2.5" style={{ color: C.slate }}>{q.equipment}</td>
                 <td className="px-4 py-2.5" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>{q.rate != null ? `$${q.rate.toLocaleString()}` : "Pending confirmation"}</td>
+                <td className="px-4 py-2.5" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>{q.rate != null && q.carrierCost != null ? `$${(q.rate - q.carrierCost).toLocaleString()} (${((q.rate - q.carrierCost) / q.rate * 100).toFixed(1)}%)` : "—"}</td>
+                <td className="px-4 py-2.5">{q.needsApproval && <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: C.warm }}><AlertTriangle size={12} />Needs approval</span>}</td>
                 <td className="px-4 py-2.5" style={{ color: C.slate }}>{q.createdBy}</td>
                 <td className="px-4 py-2.5">
                   <span className="text-xs font-semibold rounded-full px-2 py-0.5" style={{ background: statusColor[q.status] + "1a", color: statusColor[q.status] }}>{q.status}</span>
@@ -1566,16 +1605,26 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, logActi
           onCreate={(q) => { addQuote(q); setShowNew(false); setViewingQuoteId(q.id); }} logActivity={logActivity} />
       )}
       {viewingQuote && (
-        <QuoteDetailModal quote={viewingQuote} onClose={() => setViewingQuoteId(null)} updateQuote={updateQuote} deleteQuote={deleteQuote} setSelectedLeadId={setSelectedLeadId} />
+        <QuoteDetailModal quote={viewingQuote} onClose={() => setViewingQuoteId(null)} updateQuote={updateQuote} deleteQuote={deleteQuote} addLead={addLead} setSelectedLeadId={setSelectedLeadId} />
       )}
     </div>
   );
 }
 
-function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelectedLeadId }) {
+function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, addLead, setSelectedLeadId }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
   const [rate, setRate] = useState(quote.rate == null ? "" : String(quote.rate));
+  const [carrierCost, setCarrierCost] = useState(quote.carrierCost == null ? "" : String(quote.carrierCost));
+  const [lostReason, setLostReason] = useState(quote.lostReason || "");
+  const [showNewLead, setShowNewLead] = useState(false);
+  const [notes, setNotes] = useState(quote.notes || "");
+  const [specialInstructions, setSpecialInstructions] = useState(quote.specialInstructions || "");
+  const [specialServices, setSpecialServices] = useState(quote.specialServices || "");
+  const [weight, setWeight] = useState(quote.weight || "");
+  const [commodity, setCommodity] = useState(quote.commodity || "");
+  const [contactEmail, setContactEmail] = useState(quote.contactEmail || "");
+  const [contactPhone, setContactPhone] = useState(quote.contactPhone || "");
   const text = buildQuoteText(quote);
   const mailtoHref = `mailto:${quote.contactEmail || ""}?subject=${encodeURIComponent("Quote — " + quote.origin + " to " + quote.destination)}&body=${encodeURIComponent(text)}`;
 
@@ -1607,6 +1656,8 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
         <div className="grid grid-cols-2 gap-2 text-sm">
           <Kv k="Lane" v={`${quote.origin} → ${quote.destination}`} /><Kv k="Equipment" v={quote.equipment} />
           <Kv k="Pickup" v={quote.pickupDate || "TBD"} />
+          <div><FieldLabel>Weight</FieldLabel><input value={weight} onChange={(e) => setWeight(e.target.value)} onBlur={() => updateQuote(quote.id, { weight })} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Commodity</FieldLabel><input value={commodity} onChange={(e) => setCommodity(e.target.value)} onBlur={() => updateQuote(quote.id, { commodity })} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           {quote.status === "Pending Review" ? (
             <div>
               <FieldLabel>Rate</FieldLabel>
@@ -1614,7 +1665,23 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
                   className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} />
             </div>
           ) : <Kv k="Rate" v={quote.rate != null ? `$${quote.rate.toLocaleString()}` : "Pending confirmation"} />}
+          <div>
+            <FieldLabel>Carrier Cost (optional)</FieldLabel>
+            <input type="number" min="0" value={carrierCost} onChange={(e) => setCarrierCost(e.target.value)} placeholder="Carrier cost"
+              onBlur={() => updateQuote(quote.id, { carrierCost: carrierCost.trim() ? Number(carrierCost) : null })}
+              className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} />
+          </div>
         </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div><FieldLabel>Rep Name</FieldLabel><input value={quote.contactName || ""} onChange={(e) => updateQuote(quote.id, { contactName: e.target.value })} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Email</FieldLabel><input type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} onBlur={() => updateQuote(quote.id, { contactEmail })} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Phone Number</FieldLabel><input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} onBlur={() => updateQuote(quote.id, { contactPhone })} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+        </div>
+        <div><FieldLabel>Notes</FieldLabel><textarea value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => updateQuote(quote.id, { notes })} rows={3} className="w-full border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} /></div>
+        <div><FieldLabel>Quote Special Instructions</FieldLabel><textarea value={specialInstructions} onChange={(e) => setSpecialInstructions(e.target.value)} onBlur={() => updateQuote(quote.id, { specialInstructions })} rows={3} className="w-full border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} /></div>
+        <div><FieldLabel>Quote Special Services</FieldLabel><input value={specialServices} onChange={(e) => setSpecialServices(e.target.value)} onBlur={() => updateQuote(quote.id, { specialServices })} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+        {quote.rate != null && carrierCost.trim() && Number(quote.rate) !== 0 && <div className="text-sm font-semibold" style={{ color: C.ink }}>Margin: ${(quote.rate - Number(carrierCost)).toLocaleString()} ({((quote.rate - Number(carrierCost)) / quote.rate * 100).toFixed(1)}%)</div>}
+        {quote.needsApproval && <span className="self-start inline-flex items-center gap-1 text-xs font-semibold rounded-full px-2 py-1" style={{ background: C.warm + "1a", color: C.warm }}><AlertTriangle size={12} />Needs approval</span>}
 
         {quote.status === "Pending Review" && (
           <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: C.warm + "1a", color: C.warm }}>
@@ -1629,6 +1696,7 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
             View linked lead →
           </button>
         )}
+        {!quote.leadId && <button onClick={() => setShowNewLead(true)} className="self-start px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>Add as New Lead to CRM</button>}
 
         <div>
           <FieldLabel>Status</FieldLabel>
@@ -1641,6 +1709,7 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
               </button>
             ))}
           </div>
+          {quote.status === "Lost" && <div className="mt-2"><FieldLabel>Lost Reason</FieldLabel><select value={lostReason} onChange={(e) => { setLostReason(e.target.value); updateQuote(quote.id, { lostReason: e.target.value }); }} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}><option value="">Select reason</option>{LOST_REASONS.map((reason) => <option key={reason}>{reason}</option>)}</select></div>}
         </div>
 
         {quote.status === "Pending Review" && (
@@ -1650,6 +1719,10 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
             Confirm & Mark as Sent
           </button>
         )}
+
+        <button onClick={() => updateQuote(quote.id, { needsApproval: !quote.needsApproval })} className="self-start text-sm font-semibold flex items-center gap-1.5" style={{ color: quote.needsApproval ? C.warm : C.slate }}>
+          <AlertTriangle size={14} /> {quote.needsApproval ? "Needs approval" : "Flag for Approval"}
+        </button>
 
         <div>
           <FieldLabel>Quote Message</FieldLabel>
@@ -1675,6 +1748,7 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, setSelecte
           <Trash2 size={14} /> Delete Quote
         </button>
       </div>
+      {showNewLead && <NewLeadModal initialValues={{ companyName: quote.companyName, contactFirst: (quote.contactName || "").split(" ")[0], contactLast: (quote.contactName || "").split(" ").slice(1).join(" "), email: contactEmail, phone: contactPhone, agency: quote.agency || "LGI" }} onClose={() => setShowNewLead(false)} onCreate={(lead) => { addLead(lead); updateQuote(quote.id, { leadId: lead.id }); setShowNewLead(false); }} />}
     </Modal>
   );
 }
@@ -1686,7 +1760,7 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
   const [f, setF] = useState({
     companyName: "", contactName: "", contactEmail: "",
     origin: "", destination: "", equipment: "Dry Van", commodity: "", weight: "",
-    pickupDate: fmt(addDays(TODAY, 1)), rate: "", notes: "",
+    pickupDate: fmt(addDays(TODAY, 1)), rate: "", carrierCost: "", agency: "LGI", notes: "", specialInstructions: "", specialServices: "", contactPhone: "",
   });
   const [zipLoading, setZipLoading] = useState({ origin: false, destination: false });
   const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
@@ -1736,10 +1810,10 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
     const rate = Number(f.rate);
     const quote = {
       id: "Q" + Date.now(), leadId: useExisting ? leadId || null : null,
-      companyName: f.companyName, contactName: f.contactName, contactEmail: f.contactEmail,
+      companyName: f.companyName, contactName: f.contactName, contactEmail: f.contactEmail, contactPhone: f.contactPhone,
       origin: f.origin, destination: f.destination, equipment: f.equipment,
       commodity: f.commodity, weight: f.weight, pickupDate: f.pickupDate,
-      rate, notes: f.notes, status: "Sent",
+      rate, carrierCost: f.carrierCost.trim() ? Number(f.carrierCost) : null, agency: f.agency, lostReason: null, needsApproval: false, respondedAt: null, notes: f.notes, specialInstructions: f.specialInstructions, specialServices: f.specialServices, status: "Sent",
       createdBy: myRep || "Team", createdDate: fmt(TODAY), createdAt: new Date().toISOString(),
     };
     onCreate(quote);
@@ -1748,7 +1822,7 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
         type: "Quote Follow-up",
         notes: `Quoted ${quote.origin} → ${quote.destination} (${quote.equipment}): $${rate.toLocaleString()}`,
         salesperson: quote.createdBy, outcome: "Sent Info", nextStep: "Follow up on quote",
-      }, fmt(addDays(TODAY, 3)));
+      }, null, [fmt(addDays(TODAY, 1)), fmt(addDays(TODAY, 3)), fmt(addDays(TODAY, 7))]);
     }
   };
 
@@ -1806,6 +1880,9 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
           <div><FieldLabel>Pickup Date</FieldLabel><input type="date" value={f.pickupDate} onChange={set("pickupDate")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>Commodity (optional)</FieldLabel><input value={f.commodity} onChange={set("commodity")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
           <div><FieldLabel>Weight (optional)</FieldLabel><input value={f.weight} onChange={set("weight")} placeholder="e.g. 38,000 lbs" className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Rep Name</FieldLabel><input value={f.contactName} onChange={set("contactName")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Email</FieldLabel><input type="email" value={f.contactEmail} onChange={set("contactEmail")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Phone Number</FieldLabel><input value={f.contactPhone} onChange={set("contactPhone")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
         </div>
 
         {suggestion && (
@@ -1821,8 +1898,12 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
 
         <div className="grid grid-cols-2 gap-2">
           <div><FieldLabel>Rate *</FieldLabel><input type="number" min="0" value={f.rate} onChange={set("rate")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
+          <div><FieldLabel>Carrier Cost (optional)</FieldLabel><input type="number" min="0" value={f.carrierCost} onChange={set("carrierCost")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
         </div>
+        <div><FieldLabel>Agency</FieldLabel><select value={f.agency} onChange={set("agency")} className="border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>{AGENCIES.map((agency) => <option key={agency}>{agency}</option>)}</select></div>
         <div><FieldLabel>Notes (optional)</FieldLabel><textarea value={f.notes} onChange={set("notes")} rows={2} className="w-full border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} /></div>
+        <div><FieldLabel>Quote Special Instructions</FieldLabel><textarea value={f.specialInstructions} onChange={set("specialInstructions")} rows={2} className="w-full border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} /></div>
+        <div><FieldLabel>Quote Special Services</FieldLabel><input value={f.specialServices} onChange={set("specialServices")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
 
         <button onClick={submit} className="px-4 py-2 rounded-lg font-semibold text-sm self-start" style={{ background: C.green, color: C.charcoal }}>Generate Quote</button>
       </div>
@@ -1977,10 +2058,44 @@ function CustomersView({ leads, setSelectedLeadId }) {
   );
 }
 
+function CarriersView({ carriers, addCarrier }) {
+  const [showNew, setShowNew] = useState(false);
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h1 className="text-xl font-bold" style={{ color: C.ink }}>Carriers</h1>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}><Plus size={16} /> Add Carrier</button>
+      </div>
+      <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: C.line }}>
+        <table className="w-full text-sm">
+          <thead><tr style={{ background: C.bg }} className="text-left">{["Name", "MC / DOT", "Contact", "Equipment", "Lanes"].map((heading) => <th key={heading} className="px-4 py-2.5 text-xs uppercase tracking-wide" style={{ color: C.slate }}>{heading}</th>)}</tr></thead>
+          <tbody>{carriers.map((carrier) => <tr key={carrier.id} className="border-t" style={{ borderColor: C.line }}><td className="px-4 py-2.5 font-semibold" style={{ color: C.ink }}>{carrier.name}</td><td className="px-4 py-2.5" style={{ color: C.slate }}>{carrier.mc || "—"} / {carrier.dot || "—"}</td><td className="px-4 py-2.5" style={{ color: C.ink }}>{carrier.contactName || "—"}<div className="text-xs" style={{ color: C.slate }}>{carrier.contactPhone || carrier.contactEmail || ""}</div></td><td className="px-4 py-2.5" style={{ color: C.slate }}>{carrier.equipment || "—"}</td><td className="px-4 py-2.5" style={{ color: C.slate }}>{carrier.lanes || "—"}</td></tr>)}</tbody>
+        </table>
+        {carriers.length === 0 && <div className="p-8 text-center text-sm" style={{ color: C.slate }}>No carriers yet.</div>}
+      </div>
+      {showNew && <NewCarrierModal onClose={() => setShowNew(false)} onCreate={(carrier) => { addCarrier(carrier); setShowNew(false); }} />}
+    </div>
+  );
+}
+
+function NewCarrierModal({ onClose, onCreate }) {
+  const [form, setForm] = useState({ name: "", mc: "", dot: "", contactName: "", contactPhone: "", contactEmail: "", equipment: "", lanes: "", notes: "" });
+  const setField = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  return <Modal onClose={onClose} width={520}><div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: C.line }}><h2 className="text-lg font-bold" style={{ color: C.ink }}>Add Carrier</h2><button onClick={onClose}><X size={18} /></button></div><div className="p-5 flex flex-col gap-3"><div className="grid grid-cols-2 gap-2">{[["name", "Name *"], ["mc", "MC"], ["dot", "DOT"], ["contactName", "Contact Name"], ["contactPhone", "Contact Phone"], ["contactEmail", "Contact Email"], ["equipment", "Equipment"], ["lanes", "Lanes"]].map(([key, label]) => <div key={key}><FieldLabel>{label}</FieldLabel><input value={form[key]} onChange={setField(key)} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>)}</div><div><FieldLabel>Notes</FieldLabel><textarea value={form.notes} onChange={setField("notes")} rows={3} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div><button onClick={() => form.name.trim() && onCreate({ ...form, id: "C" + Date.now() })} className="self-start px-4 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>Save Carrier</button></div></Modal>;
+}
+
 /* ============================== REPORTS ============================== */
-function ReportsView({ leads }) {
+function ReportsView({ leads, quotes }) {
   const [rep, setRep] = useState("All");
-  const filtered = rep === "All" ? leads : leads.filter(l => l.assignedTo === rep);
+  const [agency, setAgency] = useState("All");
+  const filtered = leads.filter(l => (rep === "All" || l.assignedTo === rep) && (agency === "All" || l.agency === agency));
+  const responseTimes = quotes.filter((quote) => quote.createdAt && quote.respondedAt && (rep === "All" || quote.createdBy === rep) && (agency === "All" || quote.agency === agency)).map((quote) => Math.max(0, (new Date(quote.respondedAt) - new Date(quote.createdAt)) / 60000));
+  const averageResponse = responseTimes.length ? Math.round(responseTimes.reduce((sum, minutes) => sum + minutes, 0) / responseTimes.length) : 0;
+  const responseRanges = [
+    { label: "0-30 min", count: responseTimes.filter((minutes) => minutes <= 30).length, color: C.green, background: C.greenTint },
+    { label: "31-60 min", count: responseTimes.filter((minutes) => minutes > 30 && minutes <= 60).length, color: C.warm, background: C.warm + "1a" },
+    { label: "+60 min", count: responseTimes.filter((minutes) => minutes > 60).length, color: C.danger, background: C.danger + "1a" },
+  ];
 
   const bySource = SOURCES.map(s => ({ name: s, value: filtered.filter(l => l.source === s).length })).filter(x => x.value > 0);
   const stageFunnel = STAGES.filter(s => s !== "Lost" && s !== "Nurturing / Future Opportunity").map(s => ({ name: s.split(" / ")[0], value: filtered.filter(l => l.stage === s).length }));
@@ -2010,6 +2125,10 @@ function ReportsView({ leads }) {
           <option value="All">Salesperson: All</option>
           {REPS.map(r => <option key={r}>{r}</option>)}
         </select>
+        <select value={agency} onChange={e => setAgency(e.target.value)} className="text-sm border rounded-lg px-2.5 py-1.5" style={{ borderColor: C.line }}>
+          <option value="All">Agency: All</option>
+          {AGENCIES.map((item) => <option key={item}>{item}</option>)}
+        </select>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2027,6 +2146,15 @@ function ReportsView({ leads }) {
           <div className="text-xs uppercase font-semibold" style={{ color: C.slate }}>Next Quarter</div>
           <div className="text-xl font-bold mt-1" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>{money(forecastSum(nextQuarter))}</div>
           <div className="text-xs" style={{ color: C.slate }}>{nextQuarter.length} deals</div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border p-4" style={{ borderColor: C.line }}>
+        <h3 className="text-sm font-semibold mb-3" style={{ color: C.ink }}>Response Time</h3>
+        <div className="text-2xl font-medium" style={{ color: C.ink, fontFamily: "'JetBrains Mono', monospace" }}>{averageResponse} min</div>
+        <div className="text-xs mb-3" style={{ color: C.slate }}>{responseTimes.length} responded quote{responseTimes.length !== 1 ? "s" : ""}</div>
+        <div className="flex flex-wrap gap-2">
+          {responseRanges.map((range) => <div key={range.label} className="rounded-lg px-3 py-2 text-sm font-semibold" style={{ color: range.color, background: range.background }}>{range.label}: {range.count}</div>)}
         </div>
       </div>
 
@@ -2351,11 +2479,11 @@ function Kv({ k, v }) {
 }
 
 /* ============================== NEW LEAD MODAL ============================== */
-function NewLeadModal({ onClose, onCreate }) {
+function NewLeadModal({ onClose, onCreate, initialValues = {} }) {
   const [f, setF] = useState({
-    companyName: "", industry: "Logistics Company", city: "", state: "", contactFirst: "", contactLast: "",
-    jobTitle: "Operations Manager", email: "", phone: "", website: "", companyLinkedin: "",
-    source: "Cold Call", priority: "Warm", assignedTo: "Felipe Velez", estMonthlyRevenue: 0, services: [],
+    companyName: initialValues.companyName || "", industry: "Logistics Company", city: "", state: "", contactFirst: initialValues.contactFirst || "", contactLast: initialValues.contactLast || "",
+    jobTitle: "Operations Manager", email: initialValues.email || "", phone: initialValues.phone || "", website: "", companyLinkedin: "",
+    source: "Cold Call", priority: "Warm", assignedTo: "Felipe Velez", agency: initialValues.agency || "LGI", estMonthlyRevenue: 0, services: [],
   });
   const toggleService = (s) => setF(p => ({ ...p, services: p.services.includes(s) ? p.services.filter(x => x !== s) : [...p.services, s] }));
   const set = (k) => (e) => setF(p => ({ ...p, [k]: e.target.value }));
@@ -2368,7 +2496,7 @@ function NewLeadModal({ onClose, onCreate }) {
       companySize: "11-50", trucks: rint(3, 60), employees: rint(10, 150), website: f.website, companyLinkedin: f.companyLinkedin, city: f.city, state: f.state,
       timeZone: "CT", contactFirst: f.contactFirst, contactLast: f.contactLast, jobTitle: f.jobTitle,
       department: "Operations", email: f.email, phone: f.phone, mobile: f.phone, linkedin: "",
-      source: f.source, priority: f.priority, score, stage: "New Lead", assignedTo: f.assignedTo,
+      source: f.source, priority: f.priority, score, stage: "New Lead", assignedTo: f.assignedTo, agency: f.agency,
       servicesInterest: f.services.length ? f.services : ["Dry Van"], originStates: "", destinationStates: "",
       mainLanes: "", equipmentType: "Dry Van", avgWeeklyLoads: rint(2, 10), avgMonthlyLoads: rint(8, 40),
       avgWeight: "35k lbs", commodity: "General Merchandise", hazmat: false, tempControlled: false,
@@ -2407,6 +2535,9 @@ function NewLeadModal({ onClose, onCreate }) {
           </div>
           <div><FieldLabel>Assigned To</FieldLabel>
             <select value={f.assignedTo} onChange={set("assignedTo")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>{REPS.map(s => <option key={s}>{s}</option>)}</select>
+          </div>
+          <div><FieldLabel>Agency</FieldLabel>
+            <select value={f.agency} onChange={set("agency")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }}>{AGENCIES.map(s => <option key={s}>{s}</option>)}</select>
           </div>
         </div>
         <div><FieldLabel>Services of Interest</FieldLabel>

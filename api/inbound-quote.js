@@ -19,21 +19,24 @@ const EMAIL_TO_REP = {
 
 async function extractQuoteDetails(emailText, emailSubject) {
   const prompt = `You are extracting freight quote request details from a forwarded email. 
-Read the email below and return ONLY a JSON object (no markdown, no explanation) with these fields:
+Read the entire email below, including forwarded headers, quoted messages, signatures, and disclaimers. Return ONLY a JSON object (no markdown, no explanation) with these fields:
 
 {
   "companyName": string or null,
-  "contactName": string or null,
+  "contactName": string or null (the original requester, not the person forwarding the email),
   "contactEmail": string or null,
+  "contactPhone": string or null,
   "origin": string or null (city, state format, e.g. "Dallas, TX"),
   "destination": string or null (city, state format),
   "equipment": one of "Dry Van", "Reefer", "Flatbed", "Multiple", or null,
   "commodity": string or null,
   "weight": string or null,
-  "pickupDate": string or null (YYYY-MM-DD format if you can determine it, else null)
+  "pickupDate": string or null (YYYY-MM-DD format if you can determine it, else null),
+  "specialInstructions": string or null,
+  "specialServices": string or null
 }
 
-If a field cannot be determined from the email, use null. Do not guess wildly — only fill in what is reasonably clear from the text.
+For companyName, prioritize (1) the original requester's signature, (2) the original requester's email domain converted to a readable company name, and (3) an explicit company mention. If no clear clue exists, use null. Find the original requester across the full forwarding chain, not just the newest message. Ignore legal disclaimers when extracting lanes and pickup dates. If a field cannot be determined from the email, use null. Do not guess wildly.
 
 Subject: ${emailSubject}
 
@@ -145,6 +148,7 @@ export default async function handler(req, res) {
       companyName: extracted.companyName || "(Unknown company)",
       contactName: extracted.contactName || "",
       contactEmail: extracted.contactEmail || "",
+      contactPhone: extracted.contactPhone || "",
       origin: extracted.origin || "",
       destination: extracted.destination || "",
       equipment: extracted.equipment || "Dry Van",
@@ -152,6 +156,13 @@ export default async function handler(req, res) {
       weight: extracted.weight || "",
       pickupDate: extracted.pickupDate || null,
       rate: null,
+      carrierCost: null,
+      agency: "LGI",
+      lostReason: null,
+      needsApproval: false,
+      respondedAt: null,
+      specialInstructions: extracted.specialInstructions || "",
+      specialServices: extracted.specialServices || "",
       notes: `Auto-created from forwarded email: "${subject}"`,
       status: "Pending Review",
       createdBy: createdBy || "Unassigned",
