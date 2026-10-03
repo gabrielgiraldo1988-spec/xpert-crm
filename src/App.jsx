@@ -72,6 +72,8 @@ const EMAIL_TO_ROLE = {
   "mposada@lgiinc.com": "sales",
   "xpertops@lgiinc.com": "ops",
 };
+// Logins that only see the Rebel call queue (no Xpert data). Add the caller's email in lowercase.
+const CALLER_EMAILS = ["info@rebelfreightsolutions.com"];
 const QUICK_TEMPLATES = [
   "Sent quote, awaiting response.",
   "Left voicemail, will retry.",
@@ -386,6 +388,9 @@ export default function App() {
   if (!session) {
     return <LoginScreen onLoggedIn={() => {}} />;
   }
+  if (CALLER_EMAILS.includes(session.user?.email?.trim().toLowerCase() || "")) {
+    return <CallerApp session={session} />;
+  }
   return <CRMApp session={session} />;
 }
 
@@ -694,8 +699,11 @@ function CRMApp({ session }) {
     { key: "customers", label: "Customers", icon: UserCheck, badge: customersCount },
     { key: "reports", label: "Reports", icon: BarChart3 },
     { key: "team", label: "Sales Team", icon: UsersRound },
+    { key: "call-queue", label: "Rebel Call Queue", icon: Phone },
   ];
-  const NAV = role === "ops" ? allNav.filter((item) => ["pending-quotes", "quotes", "carriers"].includes(item.key)) : allNav;
+  const NAV = role === "ops" ? allNav.filter((item) => ["pending-quotes", "quotes", "carriers"].includes(item.key))
+    : role === "sales" ? allNav.filter((item) => item.key !== "call-queue")
+    : allNav;
 
   return (
     <div data-theme={theme} className="flex h-screen w-full overflow-hidden" style={{ background: C.bg, fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif" }}>
@@ -803,6 +811,7 @@ function CRMApp({ session }) {
           {view === "customers" && <CustomersView leads={leads} setSelectedLeadId={setSelectedLeadId} />}
           {view === "reports" && <ReportsView leads={leads} quotes={quotes} />}
           {view === "team" && <TeamView leads={leads} activities={activities} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "call-queue" && role !== "sales" && role !== "ops" && <CallQueueView sessionEmail={sessionEmail} />}
         </div>
       </div>
 
@@ -2554,5 +2563,313 @@ function NewLeadModal({ onClose, onCreate, initialValues = {} }) {
         <button onClick={submit} className="mt-2 px-4 py-2 rounded-lg font-semibold text-sm self-start" style={{ background: C.green, color: C.charcoal }}>Create Lead</button>
       </div>
     </Modal>
+  );
+}
+
+
+/* ============================== REBEL CALL QUEUE ============================== */
+// One lead at a time for cold calling: click to call (opens the computer's calling app, e.g. Quo),
+// pick the outcome, and the queue saves and moves to the next lead. Rows live in the Supabase table "call_leads".
+const CALL_STATUS = {
+  pendiente: { label: "Pendiente", tone: "slate" },
+  no_contesto: { label: "No contestó", tone: "warm", hotkey: "1" },
+  buzon: { label: "Buzón de voz", tone: "warm", hotkey: "2" },
+  interesado: { label: "Interesado", tone: "greenDark", hotkey: "3" },
+  volver: { label: "Volver a llamar", tone: "cold", hotkey: "4" },
+  no_interesado: { label: "No interesado", tone: "slate", hotkey: "5" },
+  equivocado: { label: "Número equivocado", tone: "danger", hotkey: "6" },
+  no_llamar: { label: "No llamar más", tone: "danger", hotkey: "7" },
+};
+const CALL_TABS = [
+  { key: "pendiente", label: "Pendientes", statuses: ["pendiente"] },
+  { key: "reintentar", label: "Reintentar", statuses: ["no_contesto", "buzon"] },
+  { key: "volver", label: "Volver a llamar", statuses: ["volver"] },
+  { key: "interesado", label: "Interesados", statuses: ["interesado"] },
+  { key: "cerrado", label: "Descartados", statuses: ["no_interesado", "equivocado", "no_llamar"] },
+  { key: "todos", label: "Todos", statuses: null },
+];
+function fmtUsPhone(p) {
+  const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(p || "");
+  return m ? `(${m[1]}) ${m[2]}-${m[3]}` : (p || "");
+}
+function callHourIn(tz) {
+  if (!tz) return null;
+  try { return Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hourCycle: "h23" }).format(new Date())); } catch { return null; }
+}
+function callTimeIn(tz) {
+  if (!tz) return "Sin dato";
+  try { return new Intl.DateTimeFormat("es-CO", { timeZone: tz, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date()); } catch { return "Sin dato"; }
+}
+function callIsInHours(lead) { const h = callHourIn(lead.tz); return h === null || (h >= 8 && h < 21); }
+function callStatusOf(lead) { return CALL_STATUS[lead.status] ? lead.status : "pendiente"; }
+function CallStatusPill({ status }) {
+  const st = CALL_STATUS[status];
+  return <span className="inline-block rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap" style={{ background: C[st.tone] + "22", color: C[st.tone] }}>{st.label}</span>;
+}
+
+function CallQueueView({ sessionEmail }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [curId, setCurId] = useState(null);
+  const [tab, setTab] = useState("pendiente");
+  const [inHours, setInHours] = useState(true);
+  const [q, setQ] = useState("");
+  const [draft, setDraft] = useState({ id: null, notes: "", callback: "" });
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null); // { text, undo: { id, prev } | null }
+  const [copied, setCopied] = useState("");
+  const [, setClock] = useState(0);
+
+  const load = useCallback(async () => {
+    const { data, error: err } = await supabase.from("call_leads").select("*").order("n", { ascending: true }).limit(2000);
+    if (err) { setError("No se pudo cargar la lista de llamadas. Revisa tu conexión y recarga la página."); setLoading(false); return; }
+    setRows(data || []);
+    setError("");
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { const t = setInterval(() => setClock((c) => c + 1), 60000); return () => clearInterval(t); }, []);
+
+  const visible = useMemo(() => {
+    const statuses = CALL_TABS.find((t) => t.key === tab).statuses;
+    const text = q.trim().toLowerCase();
+    const digits = text.replace(/\D/g, "");
+    return rows.filter((l) => {
+      if (statuses && !statuses.includes(callStatusOf(l))) return false;
+      if (inHours && tab !== "todos" && !callIsInHours(l)) return false;
+      if (!text) return true;
+      return `${l.company} ${l.name} ${l.dot}`.toLowerCase().includes(text) || (digits.length >= 3 && `${l.phone || ""}${l.cell || ""}`.includes(digits));
+    });
+  }, [rows, tab, inHours, q]);
+
+  // The lead on screen: the chosen one, or the first of the current view when nothing is chosen.
+  const cur = rows.find((l) => l.id === curId) || visible[0] || null;
+  // Notes typed for another lead never carry over: the draft only counts for the lead it was typed on.
+  const notes = cur && draft.id === cur.id ? draft.notes : (cur?.notes || "");
+  const callback = cur && draft.id === cur.id ? draft.callback : (cur?.callback_at || "");
+  const editDraft = (patch) => cur && setDraft({ id: cur.id, notes, callback, ...patch });
+
+  const nextAfter = (lead, list) => {
+    const rest = list.filter((l) => l.id !== lead.id);
+    return (rest.find((l) => l.n > lead.n) || rest[0] || null)?.id || null;
+  };
+  const showToast = (text, undo) => { setToast({ text, undo }); setTimeout(() => setToast((t) => (t && t.text === text ? null : t)), 7000); };
+
+  const write = async (lead, patch, text, advance) => {
+    if (saving) return;
+    setSaving(true);
+    const prev = { status: lead.status, notes: lead.notes, callback_at: lead.callback_at, attempts: lead.attempts, last_at: lead.last_at, updated_by: lead.updated_by };
+    const { error: err } = await supabase.from("call_leads").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", lead.id);
+    setSaving(false);
+    if (err) { setError("No se pudo guardar. Revisa tu conexión e inténtalo de nuevo."); return; }
+    setError("");
+    setRows((rs) => rs.map((l) => (l.id === lead.id ? { ...l, ...patch } : l)));
+    setDraft({ id: null, notes: "", callback: "" });
+    if (advance) setCurId(nextAfter(lead, visible));
+    showToast(text, { id: lead.id, prev });
+  };
+  const saveOutcome = (status) => {
+    if (!cur) return;
+    write(cur, { status, notes: notes.trim(), callback_at: callback || null, attempts: (cur.attempts || 0) + 1, last_at: new Date().toISOString(), updated_by: sessionEmail },
+      `${cur.company}: ${CALL_STATUS[status].label}`, true);
+  };
+  const saveOutcomeRef = useRef(saveOutcome);
+  useEffect(() => { saveOutcomeRef.current = saveOutcome; });
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = e.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const hit = Object.keys(CALL_STATUS).find((k) => CALL_STATUS[k].hotkey === e.key);
+      if (hit) saveOutcomeRef.current(hit);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+  const undo = async () => {
+    const u = toast?.undo; if (!u) return;
+    setToast(null);
+    const { error: err } = await supabase.from("call_leads").update(u.prev).eq("id", u.id);
+    if (err) { setError("No se pudo deshacer. Abre el lead en la pestaña Todos y corrígelo."); return; }
+    setRows((rs) => rs.map((l) => (l.id === u.id ? { ...l, ...u.prev } : l)));
+    setDraft({ id: null, notes: "", callback: "" }); setTab("todos"); setCurId(u.id);
+  };
+  const copyNumber = async (p) => {
+    try { await navigator.clipboard.writeText((p || "").replace(/\D/g, "").replace(/^1/, "")); setCopied(p); setTimeout(() => setCopied(""), 1500); } catch { /* the number stays selectable on screen */ }
+  };
+
+  const total = rows.length;
+  const done = rows.filter((l) => callStatusOf(l) !== "pendiente").length;
+  const btn = "px-3.5 py-2 rounded-lg text-sm font-semibold border";
+
+  if (loading) return <div className="text-sm" style={{ color: C.slate }}>Cargando la lista de llamadas…</div>;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-bold" style={{ color: C.ink }}>Rebel Call Queue</h1>
+          <div className="text-xs" style={{ color: C.slate }}>Cold calling a drivers · un lead a la vez</div>
+        </div>
+        <div className="flex items-center gap-3" style={{ minWidth: 260 }}>
+          <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: C.line }}>
+            <div className="h-full" style={{ width: total ? `${(100 * done) / total}%` : 0, background: C.green }} />
+          </div>
+          <span className="text-sm font-medium kpi-number" style={{ color: C.ink }}>{done} de {total} llamados</span>
+          <button onClick={load} className="text-xs font-semibold underline" style={{ color: C.greenDark }}>Actualizar</button>
+        </div>
+      </div>
+      {error && <div className="px-4 py-2.5 rounded-lg text-sm font-medium" style={{ background: C.danger + "1a", color: C.danger }}>{error}</div>}
+
+      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 420px) minmax(0, 1fr)" }}>
+        {/* CURRENT LEAD */}
+        <div className="bg-white rounded-xl border p-5 flex flex-col gap-4" style={{ borderColor: C.line }}>
+          {!cur ? (
+            <div className="text-sm" style={{ color: C.slate }}>
+              <div className="text-base font-semibold mb-1" style={{ color: C.ink }}>{total ? "No quedan leads en esta vista" : "La lista aún no está cargada"}</div>
+              {total ? "Cambia de pestaña o quita el filtro de horario para seguir." : "Cuando se carguen los leads aparecerán aquí."}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <FieldLabel>Lead {cur.n} de {total}</FieldLabel>
+                <CallStatusPill status={callStatusOf(cur)} />
+              </div>
+              <div>
+                <div id="cq-company" className="text-2xl font-extrabold leading-tight break-words" style={{ color: C.ink }}>{cur.company}</div>
+                <div className="text-base font-semibold mt-0.5" style={{ color: C.ink }}>{cur.name}</div>
+              </div>
+              {[cur.phone, cur.cell].filter(Boolean).map((p, i) => (
+                <div key={p} className="flex items-center gap-2.5 flex-wrap">
+                  {i === 1 && <span className="text-xs" style={{ color: C.slate }}>Otro número</span>}
+                  <span className={`${i === 0 ? "text-3xl" : "text-xl"} font-semibold kpi-number select-all`} style={{ color: C.ink }}>{fmtUsPhone(p)}</span>
+                  <a href={`tel:${p}`} className={btn + " flex items-center gap-1.5"} style={i === 0 ? { background: C.green, borderColor: C.green, color: C.charcoal } : { borderColor: C.line, color: C.ink }}>
+                    <Phone size={15} /> Llamar
+                  </a>
+                  <button onClick={() => copyNumber(p)} className={btn + " flex items-center gap-1.5"} style={{ borderColor: C.line, color: C.ink }}>
+                    <Copy size={14} /> {copied === p ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+              ))}
+              <div className="grid gap-x-4 gap-y-1 text-sm" style={{ gridTemplateColumns: "auto minmax(0, 1fr)", color: C.ink }}>
+                <span style={{ color: C.slate }}>Hora allá</span>
+                <span style={callIsInHours(cur) ? undefined : { color: C.danger, fontWeight: 600 }}>{callTimeIn(cur.tz)}{callIsInHours(cur) ? "" : " · fuera de horario"}</span>
+                <span style={{ color: C.slate }}>Zona</span><span>{cur.area || "Sin dato"} (aproximado, según el código de área)</span>
+                <span style={{ color: C.slate }}>DOT</span><span>{cur.dot}</span>
+                <span style={{ color: C.slate }}>Email</span><span className="break-all">{cur.email}</span>
+                <span style={{ color: C.slate }}>Intentos</span>
+                <span>{cur.attempts || 0}{cur.last_at ? ` · último: ${new Date(cur.last_at).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}` : ""}</span>
+              </div>
+              <div>
+                <FieldLabel>Notas de la llamada</FieldLabel>
+                <textarea id="cq-notes" value={notes} onChange={(e) => editDraft({ notes: e.target.value })} rows={3}
+                  placeholder="Equipo que maneja, rutas, con quién trabaja hoy, objeciones…"
+                  className="w-full border rounded-lg px-3 py-2 text-sm" style={{ borderColor: C.line }} />
+              </div>
+              <div>
+                <FieldLabel>Volver a llamar el (opcional)</FieldLabel>
+                <input type="datetime-local" value={callback} onChange={(e) => editDraft({ callback: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm" style={{ borderColor: C.line }} />
+              </div>
+              <div>
+                <div className="text-xs mb-2" style={{ color: C.slate }}>Elige el resultado. Se guarda y pasa al siguiente lead.</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.keys(CALL_STATUS).filter((k) => k !== "pendiente").map((k) => (
+                    <button key={k} id={`cq-out-${k}`} disabled={saving} onClick={() => saveOutcome(k)}
+                      className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold text-left"
+                      style={{ background: C[CALL_STATUS[k].tone] + "22", color: C[CALL_STATUS[k].tone], opacity: saving ? 0.5 : 1 }}>
+                      {CALL_STATUS[k].label}
+                      <span className="text-[11px] border rounded px-1.5" style={{ borderColor: "currentColor", opacity: 0.7 }}>{CALL_STATUS[k].hotkey}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-between gap-2 flex-wrap">
+                <button onClick={() => { setDraft({ id: null, notes: "", callback: "" }); setCurId(nextAfter(cur, visible) || cur.id); }} className={btn} style={{ borderColor: C.line, color: C.ink }}>Saltar sin guardar</button>
+                <button disabled={saving} onClick={() => write(cur, { notes: notes.trim(), callback_at: callback || null }, "Notas guardadas", false)} className={btn} style={{ borderColor: C.line, color: C.ink }}>Guardar solo las notas</button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* LIST */}
+        <div className="bg-white rounded-xl border p-5 flex flex-col gap-3 min-w-0" style={{ borderColor: C.line }}>
+          <div className="flex flex-wrap gap-1.5" id="cq-tabs">
+            {CALL_TABS.map((t) => {
+              const count = t.statuses ? rows.filter((l) => t.statuses.includes(callStatusOf(l))).length : total;
+              const active = tab === t.key;
+              return (
+                <button key={t.key} onClick={() => { setTab(t.key); setCurId(null); }}
+                  className="px-3 py-1 rounded-full text-sm font-medium border"
+                  style={{ background: active ? C.charcoal : "transparent", color: active ? "#fff" : C.ink, borderColor: active ? C.charcoal : C.line }}>
+                  {t.label} <span className="font-semibold kpi-number">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar empresa, nombre, teléfono o DOT"
+              className="flex-1 border rounded-lg px-3 py-2 text-sm" style={{ borderColor: C.line, minWidth: 200 }} />
+            <label className="flex items-center gap-1.5 text-sm" style={{ color: C.ink }}>
+              <input id="cq-inhours" type="checkbox" checked={inHours} onChange={(e) => { setInHours(e.target.checked); setCurId(null); }} />
+              Solo leads en horario (8 am a 9 pm allá)
+            </label>
+          </div>
+          <div className="border rounded-lg overflow-auto" style={{ borderColor: C.line, maxHeight: "65vh" }}>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: C.slate }}>
+                  {["#", "Empresa y contacto", "Teléfono", "Hora allá", "Estado", "Notas"].map((h) => <th key={h} className="px-3 py-2 font-semibold whitespace-nowrap sticky top-0" style={{ background: C.bg }}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((l) => (
+                  <tr key={l.id} onClick={() => setCurId(l.id)} className="border-t cursor-pointer hover:bg-gray-50 align-top"
+                    style={{ borderColor: C.line, background: cur && l.id === cur.id ? C.greenTint : undefined }}>
+                    <td className="px-3 py-2 kpi-number" style={{ color: C.slate }}>{l.n}</td>
+                    <td className="px-3 py-2"><div className="font-semibold" style={{ color: C.ink }}>{l.company}</div><div className="text-xs" style={{ color: C.slate }}>{l.name}</div></td>
+                    <td className="px-3 py-2 whitespace-nowrap kpi-number" style={{ color: C.slate }}>{fmtUsPhone(l.phone)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap" style={{ color: callIsInHours(l) ? C.slate : C.danger }}>{callTimeIn(l.tz)}</td>
+                    <td className="px-3 py-2"><CallStatusPill status={callStatusOf(l)} /></td>
+                    <td className="px-3 py-2" style={{ color: C.ink }}>{l.notes}{l.callback_at && <div className="text-xs" style={{ color: C.slate }}>Volver: {String(l.callback_at).replace("T", " ")}</div>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!visible.length && <div className="text-sm text-center py-8" style={{ color: C.slate }}>No hay leads en esta vista. Prueba otra pestaña o quita el filtro de horario.</div>}
+          </div>
+        </div>
+      </div>
+
+      {toast && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-4 px-4 py-2.5 rounded-lg text-sm shadow-xl z-50" style={{ background: C.charcoal, color: "#fff" }}>
+          {toast.text}
+          {toast.undo && <button id="cq-undo" onClick={undo} className="border rounded px-2.5 py-0.5 font-semibold" style={{ borderColor: "rgba(255,255,255,0.6)" }}>Deshacer</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Shell for caller logins: only the call queue, never loads or writes the Xpert CRM data.
+function CallerApp({ session }) {
+  applyTheme("light");
+  const email = session?.user?.email?.trim().toLowerCase() || "";
+  return (
+    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: C.bg, fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+        .kpi-number { font-family: 'JetBrains Mono', monospace !important; font-weight: 500; }
+      `}</style>
+      <div className="h-14 shrink-0 flex items-center justify-between px-6" style={{ background: "#08304C", color: "#fff" }}>
+        <span className="text-base font-extrabold italic uppercase tracking-wide">Rebel Freight Solutions</span>
+        <span className="flex items-center gap-3 text-xs">
+          <span className="truncate" style={{ maxWidth: 220 }}>{email}</span>
+          <button onClick={() => supabase.auth.signOut()} className="font-semibold underline">Salir</button>
+        </span>
+      </div>
+      <div className="flex-1 overflow-y-auto p-6"><CallQueueView sessionEmail={email} /></div>
+    </div>
   );
 }
