@@ -811,7 +811,7 @@ function CRMApp({ session }) {
           {view === "customers" && <CustomersView leads={leads} setSelectedLeadId={setSelectedLeadId} />}
           {view === "reports" && <ReportsView leads={leads} quotes={quotes} />}
           {view === "team" && <TeamView leads={leads} activities={activities} setSelectedLeadId={setSelectedLeadId} />}
-          {view === "call-queue" && role !== "sales" && role !== "ops" && <CallQueueView sessionEmail={sessionEmail} />}
+          {view === "call-queue" && role !== "sales" && role !== "ops" && <CallQueueView sessionEmail={sessionEmail} canAdd />}
         </div>
       </div>
 
@@ -2607,7 +2607,58 @@ function CallStatusPill({ status }) {
   return <span className="inline-block rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap" style={{ background: C[st.tone] + "22", color: C[st.tone] }}>{st.label}</span>;
 }
 
-function CallQueueView({ sessionEmail }) {
+
+// Area code -> "State|tz" (E/C/M/A/P = Eastern, Central, Mountain, Arizona, Pacific; R/K/H = Puerto Rico, Alaska, Hawaii). Approximate: mobile numbers travel.
+const CALL_AREA = {"201":"New Jersey|E","202":"Washington D.C.|E","203":"Connecticut|E","205":"Alabama|C","206":"Washington State|P","207":"Maine|E","208":"Idaho|M","209":"California|P","210":"Texas|C","212":"New York|E","213":"California|P","214":"Texas|C","215":"Pennsylvania|E","216":"Ohio|E","217":"Illinois|C","218":"Minnesota|C","219":"Indiana|E","220":"Ohio|E","223":"Pennsylvania|E","224":"Illinois|C","225":"Louisiana|C","227":"Maryland|E","228":"Mississippi|C","229":"Georgia|E","231":"Michigan|E","234":"Ohio|E","235":"Missouri|C","239":"Florida|E","240":"Maryland|E","248":"Michigan|E","251":"Alabama|C","252":"North Carolina|E","253":"Washington State|P","254":"Texas|C","256":"Alabama|C","260":"Indiana|E","262":"Wisconsin|C","267":"Pennsylvania|E","269":"Michigan|E","270":"Kentucky|E","272":"Pennsylvania|E","274":"Wisconsin|C","276":"Virginia|E","279":"California|P","281":"Texas|C","283":"Ohio|E","301":"Maryland|E","302":"Delaware|E","303":"Colorado|M","304":"West Virginia|E","305":"Florida|E","307":"Wyoming|M","308":"Nebraska|C","309":"Illinois|C","310":"California|P","312":"Illinois|C","313":"Michigan|E","314":"Missouri|C","315":"New York|E","316":"Kansas|C","317":"Indiana|E","318":"Louisiana|C","319":"Iowa|C","320":"Minnesota|C","321":"Florida|E","323":"California|P","324":"Florida|E","325":"Texas|C","326":"Ohio|E","327":"Arkansas|C","329":"New York|E","330":"Ohio|E","331":"Illinois|C","332":"New York|E","334":"Alabama|C","336":"North Carolina|E","337":"Louisiana|C","339":"Massachusetts|E","341":"California|P","346":"Texas|C","347":"New York|E","350":"California|P","351":"Massachusetts|E","352":"Florida|E","353":"Wisconsin|C","360":"Washington State|P","361":"Texas|C","363":"New York|E","364":"Kentucky|E","369":"California|P","380":"Ohio|E","385":"Utah|M","386":"Florida|E","401":"Rhode Island|E","402":"Nebraska|C","404":"Georgia|E","405":"Oklahoma|C","406":"Montana|M","407":"Florida|E","408":"California|P","409":"Texas|C","410":"Maryland|E","412":"Pennsylvania|E","413":"Massachusetts|E","414":"Wisconsin|C","415":"California|P","417":"Missouri|C","419":"Ohio|E","423":"Tennessee|E","424":"California|P","425":"Washington State|P","430":"Texas|C","432":"Texas|C","434":"Virginia|E","435":"Utah|M","440":"Ohio|E","442":"California|P","443":"Maryland|E","445":"Pennsylvania|E","447":"Illinois|C","448":"Florida|E","458":"Oregon|P","463":"Indiana|E","464":"Illinois|C","469":"Texas|C","470":"Georgia|E","472":"North Carolina|E","475":"Connecticut|E","478":"Georgia|E","479":"Arkansas|C","480":"Arizona|A","484":"Pennsylvania|E","501":"Arkansas|C","502":"Kentucky|E","503":"Oregon|P","504":"Louisiana|C","505":"New Mexico|M","507":"Minnesota|C","508":"Massachusetts|E","509":"Washington|P","510":"California|P","512":"Texas|C","513":"Ohio|E","515":"Iowa|C","516":"New York|E","517":"Michigan|E","518":"New York|E","520":"Arizona|A","530":"California|P","531":"Nebraska|C","534":"Wisconsin|C","539":"Oklahoma|C","540":"Virginia|E","541":"Oregon|P","551":"New Jersey|E","557":"Missouri|C","559":"California|P","561":"Florida|E","562":"California|P","563":"Iowa|C","564":"Washington State|P","567":"Ohio|E","570":"Pennsylvania|E","571":"Virginia|E","572":"Oklahoma|C","573":"Missouri|C","574":"Indiana|E","575":"New Mexico|M","580":"Oklahoma|C","582":"Pennsylvania|E","585":"New York|E","586":"Michigan|E","601":"Mississippi|C","602":"Arizona|A","603":"New Hampshire|E","605":"South Dakota|C","606":"Kentucky|E","607":"New York|E","608":"Wisconsin|C","609":"New Jersey|E","610":"Pennsylvania|E","612":"Minnesota|C","614":"Ohio|E","615":"Tennessee|C","616":"Michigan|E","617":"Massachusetts|E","618":"Illinois|C","619":"California|P","620":"Kansas|C","623":"Arizona|A","626":"California|P","628":"California|P","629":"Tennessee|C","630":"Illinois|C","631":"New York|E","636":"Missouri|C","640":"New Jersey|E","641":"Iowa|C","645":"Florida|E","646":"New York|E","650":"California|P","651":"Minnesota|C","656":"Florida|E","657":"California|P","659":"Alabama|C","660":"Missouri|C","661":"California|P","662":"Mississippi|C","667":"Maryland|E","669":"California|P","678":"Georgia|E","680":"New York|E","681":"West Virginia|E","682":"Texas|C","686":"Virginia|E","689":"Florida|C","701":"North Dakota|C","702":"Nevada|P","703":"Virginia|E","704":"North Carolina|E","706":"Georgia|E","707":"California|P","708":"Illinois|C","712":"Iowa|C","713":"Texas|C","714":"California|P","715":"Wisconsin|C","716":"New York|E","717":"Pennsylvania|E","718":"New York|E","719":"Colorado|M","720":"Colorado|M","724":"Pennsylvania|E","725":"Nevada|P","726":"Texas|C","727":"Florida|E","728":"Florida|E","730":"Illinois|C","731":"Tennessee|C","732":"New Jersey|E","734":"Michigan|E","737":"Texas|C","738":"California|P","740":"Ohio|E","743":"North Carolina|E","747":"California|P","748":"Colorado|M","754":"Florida|E","757":"Virginia|E","760":"California|P","762":"Georgia|E","763":"Minnesota|C","765":"Indiana|E","769":"Mississippi|C","770":"Georgia|E","771":"Washington D.C.|E","772":"Florida|E","773":"Illinois|C","774":"Massachusetts|E","779":"Illinois|C","781":"Massachusetts|E","785":"Kansas|C","786":"Florida|E","787":"Puerto Rico|R","801":"Utah|M","802":"Vermont|E","803":"South Carolina|E","804":"Virginia|E","805":"California|P","806":"Texas|C","808":"Hawaii|H","810":"Michigan|E","812":"Indiana|E","813":"Florida|E","814":"Pennsylvania|E","815":"Illinois|C","816":"Missouri|C","817":"Texas|C","818":"California|P","820":"California|P","821":"South Carolina|E","826":"Virginia|E","828":"North Carolina|E","830":"Texas|C","831":"California|P","832":"Texas|C","835":"Pennsylvania|E","838":"New York|E","839":"South Carolina|E","840":"California|P","843":"South Carolina|E","845":"New York|E","847":"Illinois|C","848":"New Jersey|E","850":"Florida|C","854":"South Carolina|E","856":"New Jersey|E","857":"Massachusetts|E","858":"California|P","859":"Kentucky|E","860":"Connecticut|E","862":"New Jersey|E","863":"Florida|E","864":"South Carolina|E","865":"Tennessee|E","870":"Arkansas|C","872":"Illinois|C","878":"Pennsylvania|E","901":"Tennessee|C","903":"Texas|C","904":"Florida|E","906":"Michigan|E","908":"New Jersey|E","909":"California|P","910":"North Carolina|E","912":"Georgia|E","913":"Kansas|C","914":"New York|E","915":"Texas|M","916":"California|P","917":"New York|E","918":"Oklahoma|C","919":"North Carolina|E","920":"Wisconsin|C","925":"California|P","928":"Arizona|A","929":"New York|E","930":"Indiana|E","931":"Tennessee|C","934":"New York|E","936":"Texas|C","937":"Ohio|E","938":"Alabama|C","939":"Puerto Rico|R","940":"Texas|C","941":"Florida|E","943":"Georgia|E","945":"Texas|C","947":"Michigan|E","948":"Virginia|E","949":"California|P","951":"California|P","952":"Minnesota|C","954":"Florida|E","956":"Texas|C","959":"Connecticut|E","970":"Colorado|M","971":"Oregon|P","972":"Texas|C","973":"New Jersey|E","975":"Missouri|C","978":"Massachusetts|E","979":"Texas|C","980":"North Carolina|E","983":"Colorado|M","984":"North Carolina|E","985":"Louisiana|C","989":"Michigan|E"};
+const CALL_TZ = { E: "America/New_York", C: "America/Chicago", M: "America/Denver", A: "America/Phoenix", P: "America/Los_Angeles", R: "America/Puerto_Rico", K: "America/Anchorage", H: "Pacific/Honolulu" };
+function normalizeUsPhone(raw) {
+  const d = String(raw || "").replace(/\D/g, "");
+  if (d.length === 10) return "+1" + d;
+  if (d.length === 11 && d[0] === "1") return "+" + d;
+  return "";
+}
+const CALL_CSV_FIELDS = {
+  phone: ["phone", "telefono", "tel", "phonenumber"],
+  cell: ["cell", "celular", "mobile", "movil", "cellphone"],
+  name: ["name", "nombre", "contact", "contacto", "owner", "ownercontact", "contactname"],
+  company: ["company", "empresa", "companyname", "legalname"],
+  dot: ["dot", "usdot", "dotnumber"],
+  email: ["email", "correo", "mail"],
+};
+const callCsvKey = (h) => String(h || "").toLowerCase().normalize("NFD").replace(/[^a-z]/g, "");
+// Turns raw prospects ({phone, cell, name, company, dot, email}) into call_leads rows, skipping bad phones and duplicates.
+function prepareCallLeads(items, existing) {
+  const phones = new Set(), ids = new Set();
+  let maxN = 0;
+  existing.forEach((l) => { if (l.phone) phones.add(l.phone); if (l.cell) phones.add(l.cell); ids.add(String(l.id)); if (l.dot) ids.add(String(l.dot)); maxN = Math.max(maxN, l.n || 0); });
+  const fresh = []; let dup = 0, bad = 0;
+  items.forEach((it, i) => {
+    let phone = normalizeUsPhone(it.phone); let cell = normalizeUsPhone(it.cell);
+    if (!phone && cell) { phone = cell; cell = ""; }
+    if (cell === phone) cell = "";
+    if (!phone) { bad++; return; }
+    const dot = String(it.dot || "").replace(/\D/g, "");
+    if (phones.has(phone) || (dot && ids.has(dot))) { dup++; return; }
+    phones.add(phone); if (cell) phones.add(cell);
+    const id = dot || `m${Date.now().toString(36)}${i}`;
+    ids.add(id);
+    const [area, tzCode] = (CALL_AREA[phone.slice(2, 5)] || "|").split("|");
+    fresh.push({ id, n: ++maxN, company: String(it.company || "").trim() || "Sin empresa", name: String(it.name || "").trim(), phone, cell: cell || null,
+      dot: dot || null, email: String(it.email || "").trim() || null, area: area || null, tz: CALL_TZ[tzCode] || null });
+  });
+  return { fresh, dup, bad };
+}
+function callCsvToItems(text) {
+  const rows = parseCSV(text.replace(/^﻿/, ""));
+  const headAt = rows.slice(0, 10).findIndex((r) => r.some((h) => CALL_CSV_FIELDS.phone.includes(callCsvKey(h)) || CALL_CSV_FIELDS.cell.includes(callCsvKey(h))));
+  if (headAt === -1) return null;
+  const keys = rows[headAt].map(callCsvKey);
+  const col = (f) => keys.findIndex((k) => CALL_CSV_FIELDS[f].includes(k));
+  const cols = Object.fromEntries(Object.keys(CALL_CSV_FIELDS).map((f) => [f, col(f)]));
+  return rows.slice(headAt + 1).map((r) => Object.fromEntries(Object.keys(cols).map((f) => [f, cols[f] === -1 ? "" : (r[cols[f]] || "").trim()])));
+}
+
+function CallQueueView({ sessionEmail, canAdd = false }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -2620,6 +2671,11 @@ function CallQueueView({ sessionEmail }) {
   const [toast, setToast] = useState(null); // { text, undo: { id, prev } | null }
   const [copied, setCopied] = useState("");
   const [, setClock] = useState(0);
+  const [adding, setAdding] = useState(null); // null | "manual" | "csv"
+  const [form, setForm] = useState({ company: "", name: "", phone: "", cell: "", dot: "", email: "" });
+  const [csvPlan, setCsvPlan] = useState(null); // { fresh, dup, bad, file } | { error }
+  const [addBusy, setAddBusy] = useState(false);
+  const [addMsg, setAddMsg] = useState("");
 
   const load = useCallback(async () => {
     const { data, error: err } = await supabase.from("call_leads").select("*").order("n", { ascending: true }).limit(2000);
@@ -2699,6 +2755,35 @@ function CallQueueView({ sessionEmail }) {
     try { await navigator.clipboard.writeText((p || "").replace(/\D/g, "").replace(/^1/, "")); setCopied(p); setTimeout(() => setCopied(""), 1500); } catch { /* the number stays selectable on screen */ }
   };
 
+  const insertLeads = async (fresh) => {
+    setAddBusy(true); setAddMsg("");
+    for (let i = 0; i < fresh.length; i += 200) {
+      const { error: err } = await supabase.from("call_leads").insert(fresh.slice(i, i + 200));
+      if (err) { setAddBusy(false); setAddMsg(`No se pudieron guardar los leads (${i} de ${fresh.length} guardados). Revisa tu conexión e inténtalo de nuevo.`); await load(); return false; }
+    }
+    await load();
+    setAddBusy(false);
+    return true;
+  };
+  const closeAdd = () => { setAdding(null); setCsvPlan(null); setAddMsg(""); setForm({ company: "", name: "", phone: "", cell: "", dot: "", email: "" }); };
+  const submitManual = async (e) => {
+    e.preventDefault();
+    const plan = prepareCallLeads([form], rows);
+    if (plan.bad) { setAddMsg("El teléfono debe ser de Estados Unidos, con 10 dígitos."); return; }
+    if (plan.dup) { setAddMsg("Ese teléfono o DOT ya está en la lista."); return; }
+    if (await insertLeads(plan.fresh)) { closeAdd(); showToast(`${plan.fresh[0].company}: agregado a la cola`, null); }
+  };
+  const pickCsv = async (file) => {
+    if (!file) return;
+    const items = callCsvToItems(await file.text());
+    if (!items) { setCsvPlan({ error: "No encontré una columna de teléfono. La primera fila debe tener los títulos: Phone, Cell, Owner / Contact, Company, DOT, Email." }); return; }
+    setCsvPlan({ ...prepareCallLeads(items, rows), file: file.name });
+  };
+  const confirmCsv = async () => {
+    const n = csvPlan.fresh.length;
+    if (await insertLeads(csvPlan.fresh)) { closeAdd(); showToast(`${n} leads agregados a la cola`, null); }
+  };
+
   const total = rows.length;
   const done = rows.filter((l) => callStatusOf(l) !== "pendiente").length;
   const btn = "px-3.5 py-2 rounded-lg text-sm font-semibold border";
@@ -2718,6 +2803,8 @@ function CallQueueView({ sessionEmail }) {
           </div>
           <span className="text-sm font-medium kpi-number" style={{ color: C.ink }}>{done} de {total} llamados</span>
           <button onClick={load} className="text-xs font-semibold underline" style={{ color: C.greenDark }}>Actualizar</button>
+          {canAdd && <button id="cq-add" onClick={() => setAdding("manual")} className={btn + " flex items-center gap-1"} style={{ background: C.green, borderColor: C.green, color: C.charcoal }}><Plus size={15} /> Agregar lead</button>}
+          {canAdd && <button id="cq-import" onClick={() => setAdding("csv")} className={btn} style={{ borderColor: C.line, color: C.ink }}>Importar CSV</button>}
         </div>
       </div>
       {error && <div className="px-4 py-2.5 rounded-lg text-sm font-medium" style={{ background: C.danger + "1a", color: C.danger }}>{error}</div>}
@@ -2841,6 +2928,50 @@ function CallQueueView({ sessionEmail }) {
           </div>
         </div>
       </div>
+
+      {adding && (
+        <Modal onClose={closeAdd} width={480}>
+          <div className="p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold" style={{ color: C.ink }}>{adding === "manual" ? "Agregar lead" : "Importar leads desde CSV"}</h2>
+              <button onClick={closeAdd} aria-label="Cerrar" style={{ color: C.slate }}><X size={18} /></button>
+            </div>
+            {adding === "manual" ? (
+              <form onSubmit={submitManual} className="flex flex-col gap-3">
+                {[["company", "Empresa", true], ["name", "Contacto", false], ["phone", "Teléfono (EE. UU.)", true], ["cell", "Otro número", false], ["dot", "DOT", false], ["email", "Email", false]].map(([k, label, req]) => (
+                  <div key={k}>
+                    <FieldLabel>{label}{req ? " *" : ""}</FieldLabel>
+                    <input id={`cq-f-${k}`} required={req} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+                      className="w-full border rounded-lg px-3 py-2 text-sm" style={{ borderColor: C.line }} />
+                  </div>
+                ))}
+                {addMsg && <div className="text-sm font-medium" style={{ color: C.danger }}>{addMsg}</div>}
+                <button id="cq-f-save" type="submit" disabled={addBusy} className={btn} style={{ background: C.green, borderColor: C.green, color: C.charcoal, opacity: addBusy ? 0.6 : 1 }}>{addBusy ? "Guardando…" : "Agregar a la cola"}</button>
+              </form>
+            ) : (
+              <div className="flex flex-col gap-3 text-sm" style={{ color: C.ink }}>
+                <p>La primera fila debe tener los títulos. Se reconocen: <strong>Phone, Cell, Owner / Contact, Company, DOT, Email</strong>. Solo el teléfono es obligatorio.</p>
+                <button onClick={() => downloadTextFile("plantilla_leads_rebel.csv", "Phone,Cell,Owner / Contact,Company,DOT,Email\n")} className="text-xs font-semibold underline self-start" style={{ color: C.greenDark }}>Descargar plantilla</button>
+                <input id="cq-csv-file" type="file" accept=".csv,text/csv" onChange={(e) => pickCsv(e.target.files[0])} />
+                {csvPlan?.error && <div className="font-medium" style={{ color: C.danger }}>{csvPlan.error}</div>}
+                {csvPlan && !csvPlan.error && (
+                  <div id="cq-csv-plan" className="rounded-lg border p-3 flex flex-col gap-1" style={{ borderColor: C.line }}>
+                    <div className="font-semibold">{csvPlan.file}</div>
+                    <div>{csvPlan.fresh.length} leads nuevos para agregar</div>
+                    <div style={{ color: C.slate }}>{csvPlan.dup} repetidos (teléfono o DOT ya en la lista), no se agregan</div>
+                    <div style={{ color: C.slate }}>{csvPlan.bad} sin teléfono válido de EE. UU., no se agregan</div>
+                  </div>
+                )}
+                {addMsg && <div className="font-medium" style={{ color: C.danger }}>{addMsg}</div>}
+                <button id="cq-csv-save" onClick={confirmCsv} disabled={addBusy || !csvPlan || csvPlan.error || !csvPlan.fresh.length} className={btn}
+                  style={{ background: C.green, borderColor: C.green, color: C.charcoal, opacity: addBusy || !csvPlan || csvPlan.error || !csvPlan.fresh.length ? 0.5 : 1 }}>
+                  {addBusy ? "Guardando…" : csvPlan && !csvPlan.error ? `Agregar ${csvPlan.fresh.length} leads` : "Agregar leads"}
+                </button>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {toast && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-4 px-4 py-2.5 rounded-lg text-sm shadow-xl z-50" style={{ background: C.charcoal, color: "#fff" }}>
