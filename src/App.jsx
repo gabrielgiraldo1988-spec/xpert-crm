@@ -2602,6 +2602,58 @@ function callTimeIn(tz) {
 }
 function callIsInHours(lead) { const h = callHourIn(lead.tz); return h === null || (h >= 8 && h < 21); }
 function callStatusOf(lead) { return CALL_STATUS[lead.status] ? lead.status : "pendiente"; }
+
+// Public FMCSA census (data.transportation.gov, no key needed), looked up by USDOT when a lead is opened.
+const carrierCache = new Map();
+const fmcsaStatus = (c) => (c === "A" ? "Activo" : c === "I" ? "Inactivo" : c || "Sin dato");
+function fmtYmd(s) { return /^\d{8}$/.test(s || "") ? `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}` : ""; }
+function ageFromYmd(s) {
+  if (!/^\d{8}$/.test(s || "")) return "";
+  const d = new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+  const months = Math.floor((Date.now() - d.getTime()) / (30.44 * 24 * 3600 * 1000));
+  return months < 1 ? "menos de 1 mes" : months < 24 ? `${months} ${months === 1 ? "mes" : "meses"}` : `${Math.floor(months / 12)} años`;
+}
+function CarrierInfo({ dot }) {
+  const [state, setState] = useState(() => carrierCache.get(dot) || { status: "loading" });
+  useEffect(() => {
+    if (!dot || carrierCache.has(dot)) return undefined;
+    let alive = true;
+    fetch(`https://data.transportation.gov/resource/az4n-8mr2.json?dot_number=${encodeURIComponent(dot)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((rows) => { const v = rows[0] ? { status: "ok", row: rows[0] } : { status: "none" }; carrierCache.set(dot, v); if (alive) setState(v); })
+      .catch(() => { if (alive) setState({ status: "error" }); });
+    return () => { alive = false; };
+  }, [dot]);
+  const link = "text-xs font-semibold underline";
+  if (!dot) return <div className="text-xs" style={{ color: C.slate }}>Sin DOT: no se puede consultar FMCSA.</div>;
+  const r = state.row || {};
+  const mc = r.docket1 ? `${r.docket1prefix || "MC"} ${r.docket1}` : "Sin MC";
+  return (
+    <div id="cq-fmcsa" className="rounded-lg border p-3 flex flex-col gap-2" style={{ borderColor: C.line, background: C.bg }}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <FieldLabel>Datos FMCSA</FieldLabel>
+        <span className="flex gap-3">
+          <a className={link} style={{ color: C.greenDark }} href={`https://motus.dot.gov/customer/${dot}/account`} target="_blank" rel="noreferrer">Ver en MOTUS</a>
+          <a className={link} style={{ color: C.greenDark }} href={`https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dot}`} target="_blank" rel="noreferrer">Ver en SAFER</a>
+        </span>
+      </div>
+      {state.status === "loading" && <div className="text-xs" style={{ color: C.slate }}>Consultando FMCSA…</div>}
+      {state.status === "none" && <div className="text-xs" style={{ color: C.slate }}>Ese DOT no aparece en el censo público de FMCSA.</div>}
+      {state.status === "error" && <div className="text-xs" style={{ color: C.danger }}>No se pudo consultar FMCSA ahora. Usa los enlaces de MOTUS o SAFER.</div>}
+      {state.status === "ok" && (
+        <div className="grid gap-x-4 gap-y-1 text-sm" style={{ gridTemplateColumns: "auto minmax(0, 1fr)", color: C.ink }}>
+          <span style={{ color: C.slate }}>MC</span><span className="font-semibold">{mc}{r.docket1 ? ` · ${fmcsaStatus(r.docket1_status_code)}` : ""}</span>
+          <span style={{ color: C.slate }}>USDOT</span><span>{fmcsaStatus(r.status_code)}</span>
+          <span style={{ color: C.slate }}>Alta en FMCSA</span><span>{fmtYmd(r.add_date) ? `${fmtYmd(r.add_date)} (hace ${ageFromYmd(r.add_date)})` : "Sin dato"}</span>
+          <span style={{ color: C.slate }}>Camiones</span><span>{r.power_units ?? "Sin dato"} · {r.total_drivers ?? "?"} conductores</span>
+          <span style={{ color: C.slate }}>Dirección</span><span>{[r.phy_city, r.phy_state].filter(Boolean).join(", ") || "Sin dato"}</span>
+          <span style={{ color: C.slate }}>Tipo</span><span>{r.classdef ? r.classdef.charAt(0) + r.classdef.slice(1).toLowerCase() : "Sin dato"}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CallStatusPill({ status }) {
   const st = CALL_STATUS[status];
   return <span className="inline-block rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap" style={{ background: C[st.tone] + "22", color: C[st.tone] }}>{st.label}</span>;
@@ -2848,6 +2900,7 @@ function CallQueueView({ sessionEmail, canAdd = false }) {
                 <span style={{ color: C.slate }}>Intentos</span>
                 <span>{cur.attempts || 0}{cur.last_at ? ` · último: ${new Date(cur.last_at).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}` : ""}</span>
               </div>
+              <CarrierInfo key={cur.dot || cur.id} dot={cur.dot} />
               <div>
                 <FieldLabel>Notas de la llamada</FieldLabel>
                 <textarea id="cq-notes" value={notes} onChange={(e) => editDraft({ notes: e.target.value })} rows={3}
