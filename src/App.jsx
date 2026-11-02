@@ -65,10 +65,10 @@ const SOURCES = ["Cold Call", "Cold Email", "LinkedIn", "Referral", "Website",
 const PRIORITIES = ["Hot", "Warm", "Cold"];
 const AGENCIES = ["LGI", "ALG"];
 const PRIORITY_COLOR = { Hot: C.hot, Warm: C.warm, Cold: C.cold };
-const REPS = ["Felipe Velez", "Manuela Posada"];
-const EMAIL_TO_REP = { "fvelez@lgiinc.com": "Felipe Velez", "mposada@lgiinc.com": "Manuela Posada" };
+const REPS = ["Kevin Barranco", "Manuela Posada"];
+const EMAIL_TO_REP = { "kevinb@lgiinc.com": "Kevin Barranco", "mposada@lgiinc.com": "Manuela Posada" };
 const EMAIL_TO_ROLE = {
-  "fvelez@lgiinc.com": "sales",
+  "kevinb@lgiinc.com": "sales",
   "mposada@lgiinc.com": "sales",
   "xpertops@lgiinc.com": "ops",
 };
@@ -261,7 +261,7 @@ function genActivities(leads) {
 /* ============================== SMALL UI PARTS ============================== */
 function Avatar({ name, size = 28 }) {
   const initials = name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
-  const color = name === "Felipe Velez" ? C.charcoal : C.greenDark;
+  const color = name === "Kevin Barranco" ? C.charcoal : C.greenDark;
   return (
     <div style={{ width: size, height: size, borderRadius: "50%", background: color, color: "#fff", fontSize: size * 0.38, fontWeight: 700 }}
       className="flex items-center justify-center shrink-0">{initials}</div>
@@ -588,19 +588,22 @@ function CRMApp({ session }) {
     persist();
   }, [persist]);
 
+  // A sales rep's new or imported leads always belong to that rep, so they never drop out of their own view.
+  const ownLead = useCallback((lead) => (role === "sales" && myRep ? { ...lead, assignedTo: myRep } : lead), [role, myRep]);
+
   const addLead = useCallback((lead) => {
-    const next = [lead, ...leadsRef.current];
+    const next = [ownLead(lead), ...leadsRef.current];
     leadsRef.current = next;
     setLeads(next);
     persist();
-  }, [persist]);
+  }, [persist, ownLead]);
 
   const addLeadsBulk = useCallback((newLeads) => {
-    const next = [...newLeads, ...leadsRef.current];
+    const next = [...newLeads.map(ownLead), ...leadsRef.current];
     leadsRef.current = next;
     setLeads(next);
     persist();
-  }, [persist]);
+  }, [persist, ownLead]);
 
   const logActivity = useCallback((leadId, act, dueDate, dueDates) => {
     const lead = leadsRef.current.find((l) => l.id === leadId);
@@ -686,6 +689,17 @@ function CRMApp({ session }) {
   const overdueCount = scopeOpenTasks.filter(t => t.dueDate < todayStr).length;
   const customersCount = scopeLeads.filter(l => l.stage === "Won – Active Customer").length;
 
+  // Sales reps only see their own book: their leads plus the activities, tasks, notes and quotes tied to them.
+  // State stays complete (persist() always saves everything); only what is rendered is scoped.
+  const isSalesRep = role === "sales" && !!myRep;
+  const visibleLeads = isSalesRep ? scopeLeads : leads;
+  const visibleLeadIds = new Set(visibleLeads.map((l) => l.id));
+  const visibleActivities = isSalesRep ? activities.filter((a) => visibleLeadIds.has(a.leadId)) : activities;
+  const visibleTasks = isSalesRep ? tasks.filter((t) => t.assignedTo === myRep || visibleLeadIds.has(t.leadId)) : tasks;
+  const visibleNotes = isSalesRep ? notes.filter((n) => visibleLeadIds.has(n.leadId)) : notes;
+  const visibleQuotes = isSalesRep ? quotes.filter((q) => q.createdBy === myRep || visibleLeadIds.has(q.leadId)) : quotes;
+  const visibleSelectedLead = selectedLead && (!isSalesRep || visibleLeadIds.has(selectedLead.id)) ? selectedLead : null;
+
   const allNav = [
     { key: "pending-quotes", label: "Pending Quotes", icon: AlertTriangle, badge: quotes.filter(q => q.status === "Pending Review").length },
     { key: "myday", label: "My Day", icon: Sun },
@@ -702,7 +716,7 @@ function CRMApp({ session }) {
     { key: "call-queue", label: "Rebel Call Queue", icon: Phone },
   ];
   const NAV = role === "ops" ? allNav.filter((item) => ["pending-quotes", "quotes", "carriers"].includes(item.key))
-    : role === "sales" ? allNav.filter((item) => item.key !== "call-queue")
+    : role === "sales" ? allNav.filter((item) => !["call-queue", "dashboard", "team"].includes(item.key))
     : allNav;
 
   return (
@@ -794,34 +808,34 @@ function CRMApp({ session }) {
           {myRep && <span className="text-[11px] ml-auto" style={{ color: C.slate }}>Showing: <strong style={{ color: C.ink }}>{myRep}</strong></span>}
         </div>
 
-        <TaskBanner leads={leads} tasks={tasks} myRep={myRep} setView={setView} />
-        <QuoteReviewBanner quotes={quotes} myRep={myRep} setView={setView} />
+        <TaskBanner leads={visibleLeads} tasks={visibleTasks} myRep={myRep} setView={setView} />
+        <QuoteReviewBanner quotes={visibleQuotes} myRep={myRep} setView={setView} />
         {toast && <div className="px-6 py-2.5 text-sm font-medium shrink-0" style={{ background: C.danger + "1a", color: C.danger, borderBottom: `1px solid ${C.line}` }}>{toast}</div>}
 
         <div className="flex-1 overflow-y-auto p-6">
-          {view === "myday" && <MyDayView leads={leads} tasks={tasks} activities={activities} myRep={myRep} setSelectedLeadId={setSelectedLeadId} setView={setView} />}
+          {view === "myday" && <MyDayView leads={visibleLeads} tasks={visibleTasks} activities={visibleActivities} myRep={myRep} setSelectedLeadId={setSelectedLeadId} setView={setView} />}
           {view === "pending-quotes" && <PendingQuotesDashboard quotes={quotes} updateQuote={updateQuote} deleteQuote={deleteQuote} setSelectedLeadId={setSelectedLeadId} />}
-          {view === "dashboard" && <Dashboard leads={leads} activities={activities} setView={setView} setSelectedLeadId={setSelectedLeadId} />}
-          {view === "leads" && <LeadsView leads={leads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} addLeadsBulk={addLeadsBulk} />}
-          {view === "pipeline" && <PipelineView leads={leads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} repFilter={pipelineRep} setRepFilter={setPipelineRep} />}
-          {view === "quotes" && <QuotesView leads={leads} quotes={quotes} addQuote={addQuote} updateQuote={updateQuote} deleteQuote={deleteQuote} addLead={addLead} logActivity={logActivity} myRep={myRep} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "dashboard" && !isSalesRep && <Dashboard leads={leads} activities={activities} setView={setView} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "leads" && <LeadsView leads={visibleLeads} search={search} setSearch={setSearch} setSelectedLeadId={setSelectedLeadId} filters={leadFilters} setFilters={setLeadFilters} addLeadsBulk={addLeadsBulk} />}
+          {view === "pipeline" && <PipelineView leads={visibleLeads} updateLead={updateLead} setSelectedLeadId={setSelectedLeadId} repFilter={pipelineRep} setRepFilter={setPipelineRep} />}
+          {view === "quotes" && <QuotesView leads={visibleLeads} quotes={visibleQuotes} addQuote={addQuote} updateQuote={updateQuote} deleteQuote={deleteQuote} addLead={addLead} logActivity={logActivity} myRep={myRep} setSelectedLeadId={setSelectedLeadId} />}
           {view === "carriers" && <CarriersView carriers={carriers} addCarrier={addCarrier} />}
-          {view === "activities" && <ActivitiesView leads={leads} activities={activities} logActivity={logActivity} setSelectedLeadId={setSelectedLeadId} repFilter={activityRep} setRepFilter={setActivityRep} />}
-          {view === "calendar" && <CalendarView tasks={tasks} toggleTaskDone={toggleTaskDone} setSelectedLeadId={setSelectedLeadId} repFilter={calendarRep} setRepFilter={setCalendarRep} />}
-          {view === "customers" && <CustomersView leads={leads} setSelectedLeadId={setSelectedLeadId} />}
-          {view === "reports" && <ReportsView leads={leads} quotes={quotes} />}
-          {view === "team" && <TeamView leads={leads} activities={activities} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "activities" && <ActivitiesView leads={visibleLeads} activities={visibleActivities} logActivity={logActivity} setSelectedLeadId={setSelectedLeadId} repFilter={activityRep} setRepFilter={setActivityRep} />}
+          {view === "calendar" && <CalendarView tasks={visibleTasks} toggleTaskDone={toggleTaskDone} setSelectedLeadId={setSelectedLeadId} repFilter={calendarRep} setRepFilter={setCalendarRep} />}
+          {view === "customers" && <CustomersView leads={visibleLeads} setSelectedLeadId={setSelectedLeadId} />}
+          {view === "reports" && <ReportsView leads={visibleLeads} quotes={visibleQuotes} />}
+          {view === "team" && !isSalesRep && <TeamView leads={leads} activities={activities} setSelectedLeadId={setSelectedLeadId} />}
           {view === "call-queue" && role !== "sales" && role !== "ops" && <CallQueueView sessionEmail={sessionEmail} canAdd />}
         </div>
       </div>
 
-      {selectedLead && (
-        <LeadDetail key={selectedLead.id} lead={selectedLead} activities={activities.filter(a => a.leadId === selectedLead.id)}
-          tasks={tasks.filter(t => t.leadId === selectedLead.id)} toggleTaskDone={toggleTaskDone}
-          notes={notes.filter(n => n.leadId === selectedLead.id)} addNote={addNote}
+      {visibleSelectedLead && (
+        <LeadDetail key={visibleSelectedLead.id} lead={visibleSelectedLead} activities={activities.filter(a => a.leadId === visibleSelectedLead.id)}
+          tasks={tasks.filter(t => t.leadId === visibleSelectedLead.id)} toggleTaskDone={toggleTaskDone}
+          notes={notes.filter(n => n.leadId === visibleSelectedLead.id)} addNote={addNote}
           onClose={() => setSelectedLeadId(null)} updateLead={updateLead} deleteLead={deleteLead} logActivity={logActivity} />
       )}
-      {showNewLead && <NewLeadModal onClose={() => setShowNewLead(false)} onCreate={(l) => { addLead(l); setShowNewLead(false); }} />}
+      {showNewLead && <NewLeadModal defaultRep={myRep} onClose={() => setShowNewLead(false)} onCreate={(l) => { addLead(l); setShowNewLead(false); }} />}
     </div>
   );
 }
@@ -1049,7 +1063,7 @@ function Dashboard({ leads, activities, setView, setSelectedLeadId }) {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-bold" style={{ color: C.ink }}>Sales Dashboard</h1>
-        <p className="text-sm" style={{ color: C.slate }}>Live overview across Felipe Velez and Manuela Posada · {fmt(TODAY)}</p>
+        <p className="text-sm" style={{ color: C.slate }}>Live overview across Kevin Barranco and Manuela Posada · {fmt(TODAY)}</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
@@ -2488,11 +2502,11 @@ function Kv({ k, v }) {
 }
 
 /* ============================== NEW LEAD MODAL ============================== */
-function NewLeadModal({ onClose, onCreate, initialValues = {} }) {
+function NewLeadModal({ onClose, onCreate, initialValues = {}, defaultRep = null }) {
   const [f, setF] = useState({
     companyName: initialValues.companyName || "", industry: "Logistics Company", city: "", state: "", contactFirst: initialValues.contactFirst || "", contactLast: initialValues.contactLast || "",
     jobTitle: "Operations Manager", email: initialValues.email || "", phone: initialValues.phone || "", website: "", companyLinkedin: "",
-    source: "Cold Call", priority: "Warm", assignedTo: "Felipe Velez", agency: initialValues.agency || "LGI", estMonthlyRevenue: 0, services: [],
+    source: "Cold Call", priority: "Warm", assignedTo: defaultRep || REPS[0], agency: initialValues.agency || "LGI", estMonthlyRevenue: 0, services: [],
   });
   const toggleService = (s) => setF(p => ({ ...p, services: p.services.includes(s) ? p.services.filter(x => x !== s) : [...p.services, s] }));
   const set = (k) => (e) => setF(p => ({ ...p, [k]: e.target.value }));
