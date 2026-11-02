@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import rebelLogo from "./assets/rebel-logo.png";
+import ProspectingGuide from "./ProspectingGuide.jsx";
 import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, Phone, UserCheck,
   BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun, Loader2,
   Mail, MapPin, Building2, TrendingUp, TrendingDown, Clock, CheckCircle2,
-  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon, Link2, Globe, FileText, Copy
+  AlertTriangle, Calendar, Truck, DollarSign, Target, ChevronRight, Trash2, Moon, Link2, Globe, FileText, Copy, BookOpen
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie,
@@ -715,9 +716,10 @@ function CRMApp({ session }) {
     { key: "reports", label: "Reports", icon: BarChart3 },
     { key: "team", label: "Sales Team", icon: UsersRound },
     { key: "call-queue", label: "Rebel Call Queue", icon: Phone },
+    { key: "guide", label: "Guía de prospección", icon: BookOpen },
   ];
   const NAV = role === "ops" ? allNav.filter((item) => ["pending-quotes", "quotes", "carriers"].includes(item.key))
-    : role === "sales" ? allNav.filter((item) => !["call-queue", "dashboard", "team"].includes(item.key))
+    : role === "sales" ? allNav.filter((item) => !["call-queue", "dashboard", "team", "guide"].includes(item.key))
     : allNav;
 
   return (
@@ -827,6 +829,7 @@ function CRMApp({ session }) {
           {view === "reports" && <ReportsView leads={visibleLeads} quotes={visibleQuotes} />}
           {view === "team" && !isSalesRep && <TeamView leads={leads} activities={activities} setSelectedLeadId={setSelectedLeadId} />}
           {view === "call-queue" && role !== "sales" && role !== "ops" && <CallQueueView sessionEmail={sessionEmail} canAdd />}
+          {view === "guide" && role !== "sales" && role !== "ops" && <ProspectingGuide />}
         </div>
       </div>
 
@@ -3054,6 +3057,7 @@ function CallQueueView({ sessionEmail, canAdd = false }) {
 // Shell for caller logins: only the call queue, never loads or writes the Xpert CRM data.
 function CallerApp({ session }) {
   applyTheme("light");
+  const [tab, setTab] = useState("queue");
   const email = session?.user?.email?.trim().toLowerCase() || "";
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: C.bg, fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif" }}>
@@ -3068,7 +3072,15 @@ function CallerApp({ session }) {
           <button onClick={() => supabase.auth.signOut()} className="font-semibold underline">Salir</button>
         </span>
       </div>
-      <div className="flex-1 overflow-y-auto p-6"><CallQueueView sessionEmail={email} /></div>
+      <div className="shrink-0 flex gap-1 px-6 pt-3 border-b bg-white" style={{ borderColor: C.line }}>
+        {[["queue", "Cola de llamadas", Phone], ["guide", "Guía", BookOpen]].map(([key, label, Icon]) => (
+          <button key={key} onClick={() => setTab(key)} className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold -mb-px"
+            style={{ color: tab === key ? C.green : C.slate, borderBottom: `2px solid ${tab === key ? C.green : "transparent"}` }}>
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto p-6">{tab === "queue" ? <CallQueueView sessionEmail={email} /> : <ProspectingGuide />}</div>
     </div>
   );
 }
