@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import xpertLogo from "./assets/xpert-logo.png";
+import rebelLogo from "./assets/rebel-logo.png";
 import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, Phone, UserCheck,
   BarChart3, UsersRound, Search, Plus, X, Flame, Snowflake, Sun, Loader2,
@@ -15,22 +15,23 @@ import { supabase } from "./supabase";
 /* ============================== BRAND TOKENS ============================== */
 const THEMES = {
   light: {
-    green: "#39d639", greenDark: "#22a022", greenTint: "#eafbea",
-    charcoal: "#1c1c1c", charcoal2: "#272727",
+    // Rebel brand: red primary + navy (from the Rebel logo). Token names kept for compatibility.
+    green: "#e0262f", greenDark: "#b3141e", greenTint: "#fdeced",
+    charcoal: "#0b2545", charcoal2: "#12345e",
     ink: "#0f172a", slate: "#64748b", line: "#e2e4e0", bg: "#f3f4f2",
     card: "#ffffff", cardHover: "#f9fafb",
     hot: "#ef4444", warm: "#f59e0b", cold: "#3b82f6", danger: "#ef4444",
     sidebarBg: "#ffffff", sidebarText: "#0f172a", sidebarTextMuted: "#64748b",
-    sidebarBorder: "#e2e4e0", sidebarActiveText: "#39d639", sidebarHoverBg: "#f1f5f2",
+    sidebarBorder: "#e2e4e0", sidebarActiveText: "#e0262f", sidebarHoverBg: "#f1f4f8",
   },
   dark: {
-    green: "#39d639", greenDark: "#4ee84e", greenTint: "#16321a",
-    charcoal: "#0d0f0e", charcoal2: "#1a1b1a",
+    green: "#ef3b44", greenDark: "#ff6b72", greenTint: "#3a1518",
+    charcoal: "#081a30", charcoal2: "#0f2440",
     ink: "#e9edf1", slate: "#94a3b8", line: "#2b2f33", bg: "#121314",
     card: "#1c1e1f", cardHover: "#232527",
     hot: "#f87171", warm: "#fbbf24", cold: "#60a5fa", danger: "#f87171",
-    sidebarBg: "#0e0f0e", sidebarText: "#ffffff", sidebarTextMuted: "#8b8d94",
-    sidebarBorder: "#333333", sidebarActiveText: "#39d639", sidebarHoverBg: "#1a1b1a",
+    sidebarBg: "#071628", sidebarText: "#ffffff", sidebarTextMuted: "#8b8d94",
+    sidebarBorder: "#24324a", sidebarActiveText: "#ef3b44", sidebarHoverBg: "#13233a",
   },
 };
 const C = { ...THEMES.light };
@@ -244,7 +245,7 @@ function genActivities(leads) {
         id: "A" + id++, leadId: lead.id, type: pick(ACTIVITY_TYPES), date: fmt(date),
         salesperson: lead.assignedTo, notes: pick([
           "Discussed current freight spend and pain points.",
-          "Introduced Xpert Freight service offering.",
+          "Introduced Rebel Freight Solutions service offering.",
           "Sent capabilities overview and rate estimate.",
           "Left voicemail, will retry.",
           "Positive call, requested a formal quote.",
@@ -350,7 +351,7 @@ function LoginScreen({ onLoggedIn }) {
     <div className="h-screen w-full flex items-center justify-center" style={{ background: C.charcoal }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');`}</style>
       <form onSubmit={submit} className="bg-white rounded-xl p-8 w-full max-w-sm flex flex-col gap-4" style={{ fontFamily: "'Inter', sans-serif" }}>
-        <img src={xpertLogo} alt="Xpert Freight" className="w-48 h-auto object-contain self-start mb-2" />
+        <div className="flex items-center gap-3 mb-2"><img src={rebelLogo} alt="Rebel Freight Solutions" className="w-14 h-auto object-contain" /><div className="leading-tight"><div className="text-xl font-extrabold tracking-wide" style={{ color: C.charcoal }}>REBEL</div><div className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: C.green }}>Freight Solutions</div></div></div>
         <div>
           <FieldLabel>Correo</FieldLabel>
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
@@ -363,7 +364,7 @@ function LoginScreen({ onLoggedIn }) {
         </div>
         {error && <div className="text-xs font-medium" style={{ color: C.danger }}>{error}</div>}
         <button type="submit" disabled={busy}
-          className="px-4 py-2.5 rounded-lg font-semibold text-sm" style={{ background: C.green, color: C.charcoal, opacity: busy ? 0.6 : 1 }}>
+          className="px-4 py-2.5 rounded-lg font-semibold text-sm" style={{ background: C.green, color: "#fff", opacity: busy ? 0.6 : 1 }}>
           {busy ? "Entrando…" : "Entrar"}
         </button>
       </form>
@@ -736,7 +737,7 @@ function CRMApp({ session }) {
       {/* SIDEBAR */}
       <div className="flex flex-col shrink-0 border-r" style={{ width: 220, background: C.sidebarBg, borderColor: C.sidebarBorder }}>
         <div className="px-5 py-5 flex items-center justify-between gap-2 border-b" style={{ borderColor: C.sidebarBorder }}>
-          <img src={xpertLogo} alt="Xpert Freight" className="w-40 h-auto object-contain" />
+          <div className="flex items-center gap-2 min-w-0"><img src={rebelLogo} alt="Rebel Freight Solutions" className="w-10 h-auto object-contain shrink-0" /><div className="leading-tight min-w-0"><div className="text-base font-extrabold tracking-wide" style={{ color: C.sidebarText }}>REBEL</div><div className="text-[9px] font-semibold uppercase tracking-widest" style={{ color: C.green }}>Freight Solutions</div></div></div>
           <button onClick={toggleTheme} title={theme === "light" ? "Modo oscuro" : "Modo claro"}
             className="p-1.5 rounded-lg shrink-0" style={{ background: C.sidebarHoverBg, color: C.greenDark }}>
             {theme === "light" ? <Moon size={14} /> : <Sun size={14} />}
@@ -753,7 +754,7 @@ function CRMApp({ session }) {
                 <span className="flex-1 text-left">{n.label}</span>
                 {n.badge > 0 && (
                   <span className="text-[10px] font-bold rounded-full px-1.5 py-0.5"
-                    style={{ background: active ? C.sidebarActiveText : C.hot, color: active ? C.green : "#fff" }}>
+                    style={{ background: active ? C.sidebarActiveText : C.hot, color: active ? "#fff" : "#fff" }}>
                     {n.badge}
                   </span>
                 )}
@@ -783,7 +784,7 @@ function CRMApp({ session }) {
           </div>
           <button onClick={() => setShowNewLead(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold shrink-0"
-            style={{ background: C.green, color: C.charcoal }}>
+            style={{ background: C.green, color: "#fff" }}>
             <Plus size={16} /> New Lead
           </button>
         </div>
@@ -1243,10 +1244,10 @@ function LeadsView({ leads, search, setSearch, setSelectedLeadId, filters, setFi
   });
 
   const handleExport = () => {
-    downloadTextFile(`xpert-leads-${fmt(TODAY)}.csv`, leadsToCSV(filtered));
+    downloadTextFile(`rebel-leads-${fmt(TODAY)}.csv`, leadsToCSV(filtered));
   };
   const handleTemplate = () => {
-    downloadTextFile("xpert-leads-template.csv", CSV_COLUMNS.join(",") + "\n");
+    downloadTextFile("rebel-leads-template.csv", CSV_COLUMNS.join(",") + "\n");
   };
   const handleImportFile = (e) => {
     const file = e.target.files[0];
@@ -1479,7 +1480,7 @@ function QuickLog({ lead, onDone, onCancel }) {
       <input type="date" value={next} onChange={e => setNext(e.target.value)} className="text-xs border rounded-md px-2 py-1" style={{ borderColor: C.line }} />
       <div className="flex gap-1.5">
         <button onClick={() => onDone({ type, notes: notes || "Logged activity.", salesperson: lead.assignedTo, outcome: "Connected", nextStep: "Follow up" }, next)}
-          className="text-xs font-semibold px-2 py-1 rounded-md" style={{ background: C.green, color: C.charcoal }}>Save</button>
+          className="text-xs font-semibold px-2 py-1 rounded-md" style={{ background: C.green, color: "#fff" }}>Save</button>
         <button onClick={onCancel} className="text-xs px-2 py-1 rounded-md" style={{ color: C.slate }}>Cancel</button>
       </div>
     </div>
@@ -1586,7 +1587,7 @@ function QuotesView({ leads, quotes, addQuote, updateQuote, deleteQuote, addLead
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold" style={{ color: C.ink }}>Quotes <span style={{ color: C.slate, fontWeight: 500 }}>({sorted.length})</span></h1>
-        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: "#fff" }}>
           <Plus size={16} /> New Quote
         </button>
         <select value={agency} onChange={(e) => setAgency(e.target.value)} className="text-sm border rounded-lg px-2.5 py-1.5" style={{ borderColor: C.line }}><option value="All">Agency: All</option>{AGENCIES.map((item) => <option key={item}>{item}</option>)}</select>
@@ -1719,7 +1720,7 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, addLead, s
             View linked lead →
           </button>
         )}
-        {!quote.leadId && <button onClick={() => setShowNewLead(true)} className="self-start px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>Add as New Lead to CRM</button>}
+        {!quote.leadId && <button onClick={() => setShowNewLead(true)} className="self-start px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: "#fff" }}>Add as New Lead to CRM</button>}
 
         <div>
           <FieldLabel>Status</FieldLabel>
@@ -1738,7 +1739,7 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, addLead, s
         {quote.status === "Pending Review" && (
           <button onClick={confirmAndMarkSent} disabled={!rate.trim()}
             className="px-3 py-2 rounded-lg text-sm font-semibold self-start"
-            style={{ background: C.green, color: C.charcoal, opacity: !rate.trim() ? 0.5 : 1 }}>
+            style={{ background: C.green, color: "#fff", opacity: !rate.trim() ? 0.5 : 1 }}>
             Confirm & Mark as Sent
           </button>
         )}
@@ -1756,7 +1757,7 @@ function QuoteDetailModal({ quote, onClose, updateQuote, deleteQuote, addLead, s
           <button onClick={copyToClipboard} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border" style={{ borderColor: C.line, color: C.ink }}>
             <Copy size={14} />{copied ? "Copied!" : "Copy Text"}
           </button>
-          <a href={mailtoHref} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>
+          <a href={mailtoHref} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: "#fff" }}>
             <Mail size={14} />Open in Email
           </a>
         </div>
@@ -1928,7 +1929,7 @@ function NewQuoteModal({ leads, quotes, myRep, onClose, onCreate, logActivity })
         <div><FieldLabel>Quote Special Instructions</FieldLabel><textarea value={f.specialInstructions} onChange={set("specialInstructions")} rows={2} className="w-full border rounded-lg px-2 py-1.5 text-sm resize-none" style={{ borderColor: C.line }} /></div>
         <div><FieldLabel>Quote Special Services</FieldLabel><input value={f.specialServices} onChange={set("specialServices")} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>
 
-        <button onClick={submit} className="px-4 py-2 rounded-lg font-semibold text-sm self-start" style={{ background: C.green, color: C.charcoal }}>Generate Quote</button>
+        <button onClick={submit} className="px-4 py-2 rounded-lg font-semibold text-sm self-start" style={{ background: C.green, color: "#fff" }}>Generate Quote</button>
       </div>
     </Modal>
   );
@@ -2087,7 +2088,7 @@ function CarriersView({ carriers, addCarrier }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold" style={{ color: C.ink }}>Carriers</h1>
-        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}><Plus size={16} /> Add Carrier</button>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: "#fff" }}><Plus size={16} /> Add Carrier</button>
       </div>
       <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: C.line }}>
         <table className="w-full text-sm">
@@ -2104,7 +2105,7 @@ function CarriersView({ carriers, addCarrier }) {
 function NewCarrierModal({ onClose, onCreate }) {
   const [form, setForm] = useState({ name: "", mc: "", dot: "", contactName: "", contactPhone: "", contactEmail: "", equipment: "", lanes: "", notes: "" });
   const setField = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
-  return <Modal onClose={onClose} width={520}><div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: C.line }}><h2 className="text-lg font-bold" style={{ color: C.ink }}>Add Carrier</h2><button onClick={onClose}><X size={18} /></button></div><div className="p-5 flex flex-col gap-3"><div className="grid grid-cols-2 gap-2">{[["name", "Name *"], ["mc", "MC"], ["dot", "DOT"], ["contactName", "Contact Name"], ["contactPhone", "Contact Phone"], ["contactEmail", "Contact Email"], ["equipment", "Equipment"], ["lanes", "Lanes"]].map(([key, label]) => <div key={key}><FieldLabel>{label}</FieldLabel><input value={form[key]} onChange={setField(key)} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>)}</div><div><FieldLabel>Notes</FieldLabel><textarea value={form.notes} onChange={setField("notes")} rows={3} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div><button onClick={() => form.name.trim() && onCreate({ ...form, id: "C" + Date.now() })} className="self-start px-4 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>Save Carrier</button></div></Modal>;
+  return <Modal onClose={onClose} width={520}><div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: C.line }}><h2 className="text-lg font-bold" style={{ color: C.ink }}>Add Carrier</h2><button onClick={onClose}><X size={18} /></button></div><div className="p-5 flex flex-col gap-3"><div className="grid grid-cols-2 gap-2">{[["name", "Name *"], ["mc", "MC"], ["dot", "DOT"], ["contactName", "Contact Name"], ["contactPhone", "Contact Phone"], ["contactEmail", "Contact Email"], ["equipment", "Equipment"], ["lanes", "Lanes"]].map(([key, label]) => <div key={key}><FieldLabel>{label}</FieldLabel><input value={form[key]} onChange={setField(key)} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div>)}</div><div><FieldLabel>Notes</FieldLabel><textarea value={form.notes} onChange={setField("notes")} rows={3} className="w-full border rounded-lg px-2 py-1.5 text-sm" style={{ borderColor: C.line }} /></div><button onClick={() => form.name.trim() && onCreate({ ...form, id: "C" + Date.now() })} className="self-start px-4 py-2 rounded-lg text-sm font-semibold" style={{ background: C.green, color: "#fff" }}>Save Carrier</button></div></Modal>;
 }
 
 /* ============================== REPORTS ============================== */
@@ -2250,7 +2251,7 @@ function TeamView({ leads, activities, setSelectedLeadId }) {
               <Avatar name={s.rep} size={44} />
               <div>
                 <div className="font-bold text-lg" style={{ color: C.ink }}>{s.rep}</div>
-                <div className="text-xs" style={{ color: C.slate }}>Sales Representative · Xpert Freight</div>
+                <div className="text-xs" style={{ color: C.slate }}>Sales Representative · Rebel Freight Solutions</div>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center mb-4">
@@ -2368,7 +2369,7 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, notes, addNote, o
             <button onClick={() => setEditing(true)} className="text-xs font-semibold" style={{ color: C.greenDark }}>Edit Profile</button>
           ) : (
             <div className="flex gap-2">
-              <button onClick={saveEdits} className="text-xs font-semibold px-2 py-1 rounded-md" style={{ background: C.green, color: C.charcoal }}>Save Changes</button>
+              <button onClick={saveEdits} className="text-xs font-semibold px-2 py-1 rounded-md" style={{ background: C.green, color: "#fff" }}>Save Changes</button>
               <button onClick={() => setEditing(false)} className="text-xs font-semibold" style={{ color: C.slate }}>Cancel</button>
             </div>
           )}
@@ -2444,7 +2445,7 @@ function LeadDetail({ lead, activities, tasks, toggleTaskDone, notes, addNote, o
               <button onClick={() => {
                 logActivity(lead.id, { type, notes: taskNotes || "Logged activity.", salesperson: lead.assignedTo, outcome: "Connected", nextStep: "Follow up" }, next);
                 setTaskNotes(""); setSaved(true); setTimeout(() => setSaved(false), 2500);
-              }} className="self-start px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: C.charcoal }}>Save Task</button>
+              }} className="self-start px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: C.green, color: "#fff" }}>Save Task</button>
               {saved && <span className="text-xs font-semibold flex items-center gap-1" style={{ color: C.greenDark }}><CheckCircle2 size={14} />Saved</span>}
             </div>
           </div>
@@ -2574,7 +2575,7 @@ function NewLeadModal({ onClose, onCreate, initialValues = {}, defaultRep = null
             ))}
           </div>
         </div>
-        <button onClick={submit} className="mt-2 px-4 py-2 rounded-lg font-semibold text-sm self-start" style={{ background: C.green, color: C.charcoal }}>Create Lead</button>
+        <button onClick={submit} className="mt-2 px-4 py-2 rounded-lg font-semibold text-sm self-start" style={{ background: C.green, color: "#fff" }}>Create Lead</button>
       </div>
     </Modal>
   );
