@@ -66,11 +66,11 @@ export default function ProspectingGuide() {
           <li><strong>Saludo:</strong> "Hola, ¿hablo con [nombre]? Le habla Paula, de Rebel Freight Solutions. ¿Está manejando o tiene un minuto?"</li>
           <li><strong>Gancho:</strong> "Una pregunta rápida: cuando le consiguen una carga, ¿usted ve el rate con original que paga el bróker?"</li>
           <li><strong>Calificar:</strong> "¿Usted mismo busca las cargas o tiene dispatcher? ¿Qué equipo maneja y por qué zonas?"</li>
-          <li><strong>Diferencia:</strong> "Le mandamos el rate con original de cada carga y usted decide qué toma. Nelly, una camionera con hotshot, perdía 20–30% en B rates con su dispatcher anterior; hoy solo maneja."</li>
+          <li><strong>Diferencia:</strong> "Le mandamos el rate con original de cada carga y usted decide qué toma. Nelly, una camionera con hotshot, perdía 20–30% en B rates con su dispatcher anterior; hoy solo maneja. Nuestro equipo tiene 8 años de experiencia en la industria."</li>
           <li><strong>Cierre:</strong> "Le propongo 15 minutos con Gabriel para revisar sus números. ¿Mañana en la mañana o en la tarde?"</li>
           <li><strong>Si dice que no:</strong> "¿Conoce a alguien que esté empezando con su MC? Pagamos un bono si firma."</li>
         </ol>
-        <p><strong>Si preguntan el precio:</strong> "Depende del equipo y de las cargas; Gabriel se lo explica con números en la llamada de 15 minutos."</p>
+        <p><strong>Si preguntan el precio:</strong> "Para dry van o flatbed cobramos entre 5% y 8% del bruto semanal, según las cargas; Gabriel le da el número exacto en la llamada de 15 minutos." Para otro equipo, el precio lo da Gabriel.</p>
       </Section>
 
       <Section title="Buzón de voz y WhatsApp">
@@ -90,7 +90,7 @@ export default function ProspectingGuide() {
             ["\"Ya tengo dispatcher.\"", "\"Qué bueno. Una pregunta nada más: ¿le manda el rate con original de cada carga? Si algún día quiere comparar, le dejo mi WhatsApp.\""],
             ["\"Mi esposa / un familiar me despacha.\"", "\"Perfecto, nadie cuida mejor el negocio que la familia. Si ella necesita apoyo de noche o los fines de semana, cubrimos 24/7.\""],
             ["\"Yo mismo me despacho.\"", "\"¿Cuántas horas al día se le van buscando cargas y negociando? Esas horas las podría estar manejando.\""],
-            ["\"¿Cuánto cobran?\"", "\"Depende del equipo y de las cargas. Gabriel se lo muestra con números en 15 minutos. ¿Mañana en la mañana o en la tarde?\""],
+            ["\"¿Cuánto cobran?\"", "\"Para dry van o flatbed, entre 5% y 8% del bruto semanal según las cargas. Gabriel le da el número exacto en 15 minutos. ¿Mañana en la mañana o en la tarde?\""],
             ["\"Estoy manejando.\"", "\"Le llamo después. ¿A qué hora le queda mejor?\" → agéndalo aquí."],
             ["\"No me interesa.\"", "\"Entendido. ¿Conoce a alguien que esté empezando con su MC? Pagamos un bono si firma.\""],
             ["Contesta en inglés", "Sigue en inglés con el mismo guion o márcalo para que lo llame alguien en inglés."],
@@ -101,7 +101,7 @@ export default function ProspectingGuide() {
 
       <Section title="Reglas que no se rompen">
         <ol className="list-decimal pl-5 flex flex-col gap-1.5">
-          <li><strong>Solo decimos lo que es verdad.</strong> No menciones años de experiencia ni porcentajes hasta que Gabriel los confirme.</li>
+          <li><strong>Solo decimos lo que es verdad.</strong> Decimos "8 años de experiencia en la industria" (es la experiencia del equipo; nunca que la empresa tiene 8 años) y "5–8% del bruto semanal" solo para dry van o flatbed.</li>
           <li><strong>Cada WhatsApp es uno a uno.</strong> Nada de envíos masivos ni listas de difusión a personas que no nos conocen: WhatsApp bloquea el número y en EE. UU. los mensajes automáticos sin permiso pueden traer problemas legales.</li>
           <li><strong>Si alguien dice "no me llame más", no se le vuelve a llamar.</strong> Márcalo de inmediato.</li>
           <li><strong>Todo queda registrado aquí:</strong> cada llamada con su resultado y cada "llámame después" con su hora.</li>
