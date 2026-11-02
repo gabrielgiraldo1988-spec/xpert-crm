@@ -10,7 +10,7 @@ const STAGE_PROB = {
 };
 
 const REP_EMAILS = {
-  "Felipe Velez": "fvelez@lgiinc.com",
+  "Kevin Barranco": "kevinb@lgiinc.com",
   "Manuela Posada": "mposada@lgiinc.com",
 };
 

@@ -13,7 +13,7 @@ import { Resend } from "resend";
 
 // Keep this in sync with EMAIL_TO_REP in src/App.jsx.
 const EMAIL_TO_REP = {
-  "fvelez@lgiinc.com": "Felipe Velez",
+  "kevinb@lgiinc.com": "Kevin Barranco",
   "mposada@lgiinc.com": "Manuela Posada",
 };
 
