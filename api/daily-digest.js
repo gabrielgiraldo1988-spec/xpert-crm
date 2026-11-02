@@ -40,8 +40,8 @@ function buildHtml(repName, { overdue, dueToday, hotLeads, staleCount }) {
 
   return `
   <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;">
-    <div style="background:#1c1c1c;padding:16px 20px;border-radius:10px 10px 0 0;">
-      <span style="color:#39d639;font-weight:800;font-size:16px;">XPERT FREIGHT</span>
+    <div style="background:#0b2545;padding:16px 20px;border-radius:10px 10px 0 0;">
+      <span style="color:#ffffff;font-weight:800;font-size:16px;">REBEL</span> <span style="color:#e0262f;font-weight:700;font-size:12px;letter-spacing:2px;">FREIGHT SOLUTIONS</span>
     </div>
     <div style="border:1px solid #e6e8eb;border-top:none;border-radius:0 0 10px 10px;padding:20px;">
       <h2 style="color:#0f172a;margin:0 0 4px;">Good morning, ${escapeHtml(repName.split(" ")[0])}</h2>
@@ -53,7 +53,7 @@ function buildHtml(repName, { overdue, dueToday, hotLeads, staleCount }) {
       </div>
 
       <div style="margin-bottom:16px;">
-        <div style="font-weight:700;color:#22a022;font-size:13px;margin-bottom:6px;">🟢 ${dueToday.length} task${dueToday.length !== 1 ? "s" : ""} due today</div>
+        <div style="font-weight:700;color:#b3141e;font-size:13px;margin-bottom:6px;">🟢 ${dueToday.length} task${dueToday.length !== 1 ? "s" : ""} due today</div>
         ${dueToday.length ? dueToday.map(row).join("") : `<div style="font-size:13px;color:#64748b;">Nothing due today.</div>`}
       </div>
 
@@ -64,7 +64,7 @@ function buildHtml(repName, { overdue, dueToday, hotLeads, staleCount }) {
 
       ${staleCount > 0 ? `<div style="font-size:13px;color:#ef4444;margin-top:8px;">⚠️ ${staleCount} lead${staleCount !== 1 ? "s" : ""} with no activity in 7+ days.</div>` : ""}
 
-      <a href="https://xpert-crm.vercel.app" style="display:inline-block;margin-top:20px;background:#39d639;color:#1c1c1c;font-weight:700;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:13px;">Open CRM</a>
+      <a href="https://xpert-crm.vercel.app" style="display:inline-block;margin-top:20px;background:#e0262f;color:#ffffff;font-weight:700;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:13px;">Open CRM</a>
     </div>
   </div>`;
 }
@@ -126,11 +126,11 @@ export default async function handler(req, res) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: process.env.DIGEST_FROM_EMAIL || "Xpert Freight <onboarding@resend.dev>",
+          from: process.env.DIGEST_FROM_EMAIL || "Rebel Freight Solutions <onboarding@resend.dev>",
           to: toAddress,
           subject: testOverride
-            ? `[TEST for ${repName}] Your day at Xpert Freight — ${today}`
-            : `Your day at Xpert Freight — ${today}`,
+            ? `[TEST for ${repName}] Your day at Rebel Freight Solutions — ${today}`
+            : `Your day at Rebel Freight Solutions — ${today}`,
           html,
         }),
       });
